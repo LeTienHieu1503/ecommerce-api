@@ -1,6 +1,9 @@
-using Microsoft.EntityFrameworkCore;
 using Ecommerce.API.Data;
-using Ecommerce.API.Services;
+using Ecommerce.API.Services.Category.Implementations;
+using Ecommerce.API.Services.Category.Interfaces;
+using Ecommerce.API.Services.Product.Implementations;
+using Ecommerce.API.Services.Product.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,17 +12,16 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection")));
 
+builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<IProductService, ProductService>();
 
 builder.Services.AddControllers();
 
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

@@ -10,4 +10,7 @@ public class UpdateProductDto
 
     [Range(0, double.MaxValue)]
     public decimal Price { get; set; }
+
+    [Required]
+    public int CategoryId { get; set; }
 }

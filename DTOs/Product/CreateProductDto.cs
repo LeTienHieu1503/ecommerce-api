@@ -8,6 +8,9 @@ public class CreateProductDto
     [MaxLength(200, ErrorMessage = "Name cannot exceed 200 characters")]
     public string Name { get; set; } = string.Empty;
 
-    [Range(0, double.MaxValue, ErrorMessage = "Price must be than 0")]
+    [Range(0, double.MaxValue, ErrorMessage = "Price must be greater than 0")]
     public decimal Price { get; set; }
+
+    [Required]
+    public int CategoryId { get; set; }
 }
