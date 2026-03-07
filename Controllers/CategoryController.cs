@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Ecommerce.API.DTOs.Category;
 using Ecommerce.API.Services.Category.Interfaces;
 
@@ -27,9 +27,6 @@ public class CategoryController : ControllerBase
     {
         var category = await _service.GetByIdAsync(id);
 
-        if (category == null)
-            return NotFound();
-
         return Ok(category);
     }
 
@@ -48,19 +45,13 @@ public class CategoryController : ControllerBase
     {
         var category = await _service.UpdateAsync(id, dto);
 
-        if (category == null)
-            return NotFound();
-
         return Ok(category);
     }
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {
-        var success = await _service.DeleteAsync(id);
-
-        if (!success)
-            return NotFound();
+        await _service.DeleteAsync(id);
 
         return NoContent();
     }

@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Ecommerce.API.DTOs.Product;
 using Ecommerce.API.Services.Product.Interfaces;
 
@@ -16,51 +16,67 @@ public class ProductController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetAll(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10)
     {
         var result = await _service.GetAllAsync(page, pageSize);
-        return Ok(result);
+
+        return Ok(new
+        {
+            page,
+            pageSize,
+            data = result
+        });
     }
 
     [HttpGet("{id}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(int id)
     {
         var result = await _service.GetByIdAsync(id);
-
-        if (result == null)
-            return NotFound();
 
         return Ok(result);
     }
 
     [HttpPost]
-    public async Task<IActionResult> Create(CreateProductDto dto)
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    public async Task<IActionResult> Create([FromBody] CreateProductDto dto)
     {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
         var result = await _service.CreateAsync(dto);
 
-        return CreatedAtAction(nameof(GetById),
+        return CreatedAtAction(
+            nameof(GetById),
             new { id = result.Id },
             result);
     }
 
     [HttpPut("{id}")]
-    public async Task<IActionResult> Update(int id, UpdateProductDto dto)
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Update(
+        int id,
+        [FromBody] UpdateProductDto dto)
     {
-        var updated = await _service.UpdateAsync(id, dto);
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
 
-        if (updated == null)
-            return NotFound();
+        var updated = await _service.UpdateAsync(id, dto);
 
         return Ok(updated);
     }
 
     [HttpDelete("{id}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id)
     {
-        var success = await _service.DeleteAsync(id);
-
-        if (!success)
-            return NotFound();
+        await _service.DeleteAsync(id);
 
         return NoContent();
     }

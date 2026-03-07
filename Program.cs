@@ -1,4 +1,5 @@
 using Ecommerce.API.Data;
+using Ecommerce.API.Middleware;
 using Ecommerce.API.Services.Category.Implementations;
 using Ecommerce.API.Services.Category.Interfaces;
 using Ecommerce.API.Services.Product.Implementations;
@@ -27,6 +28,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseMiddleware<GlobalExceptionMiddleware>();
 
 app.UseHttpsRedirection();
 

@@ -1,8 +1,9 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Ecommerce.API.Data;
 using Ecommerce.API.DTOs.Category;
 using Ecommerce.API.Models;
 using Ecommerce.API.Services.Category.Interfaces;
+using Ecommerce.API.Exceptions;
 
 namespace Ecommerce.API.Services.Category.Implementations;
 
@@ -28,14 +29,14 @@ public class CategoryService : ICategoryService
             .ToListAsync();
     }
 
-    public async Task<CategoryResponseDto?> GetByIdAsync(int id)
+    public async Task<CategoryResponseDto> GetByIdAsync(int id)
     {
         var category = await _context.Categories
             .AsNoTracking()
             .FirstOrDefaultAsync(c => c.Id == id);
 
         if (category == null)
-            return null;
+            throw new NotFoundException("Category not found");
 
         return new CategoryResponseDto
         {
@@ -46,6 +47,9 @@ public class CategoryService : ICategoryService
 
     public async Task<CategoryResponseDto> CreateAsync(CreateCategoryDto dto)
     {
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            throw new ValidationException("Category name is required");
+
         var category = new Ecommerce.API.Models.Category
         {
             Name = dto.Name
@@ -61,13 +65,16 @@ public class CategoryService : ICategoryService
         };
     }
 
-    public async Task<CategoryResponseDto?> UpdateAsync(int id, UpdateCategoryDto dto)
+    public async Task<CategoryResponseDto> UpdateAsync(int id, UpdateCategoryDto dto)
     {
         var category = await _context.Categories
             .FirstOrDefaultAsync(c => c.Id == id);
 
         if (category == null)
-            return null;
+            throw new NotFoundException("Category not found");
+
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            throw new ValidationException("Category name is required");
 
         category.Name = dto.Name;
 
@@ -80,24 +87,22 @@ public class CategoryService : ICategoryService
         };
     }
 
-    public async Task<bool> DeleteAsync(int id)
+    public async Task DeleteAsync(int id)
     {
         var category = await _context.Categories
             .FirstOrDefaultAsync(c => c.Id == id);
 
         if (category == null)
-            return false;
+            throw new NotFoundException("Category not found");
 
         var hasProducts = await _context.Products
             .AnyAsync(p => p.CategoryId == id);
 
         if (hasProducts)
-            throw new InvalidOperationException("Cannot delete category because it has products.");
+            throw new BusinessException("Cannot delete category because it has products.");
 
         _context.Categories.Remove(category);
 
         await _context.SaveChangesAsync();
-
-        return true;
     }
 }
