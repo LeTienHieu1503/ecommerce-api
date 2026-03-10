@@ -4,13 +4,13 @@ namespace Ecommerce.API.DTOs.Product;
 
 public class CreateProductDto
 {
-    [Required(ErrorMessage = "Name is required")] 
-    [MaxLength(200, ErrorMessage = "Name cannot exceed 200 characters")]
+    [Required]
+    [MaxLength(200)]
     public string Name { get; set; } = string.Empty;
 
-    [Range(0, double.MaxValue, ErrorMessage = "Price must be greater than 0")]
+    [Range(0, double.MaxValue)]
     public decimal Price { get; set; }
 
     [Required]
     public int CategoryId { get; set; }
-}
+}   

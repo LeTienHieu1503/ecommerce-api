@@ -4,7 +4,7 @@ namespace Ecommerce.API.Services.Category.Interfaces;
 
 public interface ICategoryService
 {
-    Task<List<CategoryResponseDto>> GetAllAsync();
+    Task<List<CategoryResponseDto>> GetAllAsync(int page, int pageSize);
 
     Task<CategoryResponseDto> GetByIdAsync(int id);
 

@@ -1,9 +1,8 @@
-using Microsoft.EntityFrameworkCore;
 using Ecommerce.API.Data;
-using Ecommerce.API.Models;
 using Ecommerce.API.DTOs.Product;
-using Ecommerce.API.Services.Product.Interfaces;
 using Ecommerce.API.Exceptions;
+using Ecommerce.API.Services.Product.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ecommerce.API.Services.Product.Implementations;
 
@@ -18,16 +17,13 @@ public class ProductService : IProductService
 
     public async Task<ProductResponseDto> CreateAsync(CreateProductDto dto)
     {
-        if (dto.Price <= 0)
-            throw new ValidationException("Price must be greater than 0");
-
         var categoryExists = await _context.Categories
             .AnyAsync(c => c.Id == dto.CategoryId);
 
         if (!categoryExists)
             throw new NotFoundException("Category not found");
 
-        var product = new Ecommerce.API.Models.Product
+        var product = new Models.Product
         {
             Name = dto.Name,
             Price = dto.Price,
@@ -37,20 +33,30 @@ public class ProductService : IProductService
         _context.Products.Add(product);
         await _context.SaveChangesAsync();
 
-        return MapToDto(product);
+        return await GetByIdAsync(product.Id);
     }
 
     public async Task<ProductResponseDto> GetByIdAsync(int id)
     {
         var product = await _context.Products
+            .Where(p => p.Id == id && !p.IsDeleted)
+            .Select(p => new ProductResponseDto
+            {
+                Id = p.Id,
+                Name = p.Name,
+                Price = p.Price,
+                CategoryId = p.CategoryId,
+                CategoryName = p.Category.Name,
+                CreatedAt = p.CreatedAt,
+                UpdatedAt = p.UpdatedAt
+            })
             .AsNoTracking()
-            .Where(p => !p.IsDeleted)
-            .FirstOrDefaultAsync(p => p.Id == id);
+            .FirstOrDefaultAsync();
 
         if (product == null)
             throw new NotFoundException("Product not found");
 
-        return MapToDto(product);
+        return product;
     }
 
     public async Task<List<ProductResponseDto>> GetAllAsync(int page, int pageSize)
@@ -59,9 +65,7 @@ public class ProductService : IProductService
         if (pageSize <= 0) pageSize = 10;
 
         return await _context.Products
-            .Include(p => p.Category)
             .Where(p => !p.IsDeleted)
-            .AsNoTracking()
             .OrderBy(p => p.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
@@ -75,6 +79,7 @@ public class ProductService : IProductService
                 CreatedAt = p.CreatedAt,
                 UpdatedAt = p.UpdatedAt
             })
+            .AsNoTracking()
             .ToListAsync();
     }
 
@@ -99,7 +104,7 @@ public class ProductService : IProductService
 
         await _context.SaveChangesAsync();
 
-        return MapToDto(product);
+        return await GetByIdAsync(product.Id);
     }
 
     public async Task DeleteAsync(int id)
@@ -114,18 +119,5 @@ public class ProductService : IProductService
         product.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
-    }
-
-    private static ProductResponseDto MapToDto(Ecommerce.API.Models.Product product)
-    {
-        return new ProductResponseDto
-        {
-            Id = product.Id,
-            Name = product.Name,
-            Price = product.Price,
-            CategoryId = product.CategoryId,
-            CreatedAt = product.CreatedAt,
-            UpdatedAt = product.UpdatedAt
-        };
     }
 }

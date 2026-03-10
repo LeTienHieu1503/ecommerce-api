@@ -20,6 +20,7 @@ public class ProductController : ControllerBase
     public async Task<IActionResult> GetAll(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10)
+
     {
         var result = await _service.GetAllAsync(page, pageSize);
 
@@ -45,9 +46,6 @@ public class ProductController : ControllerBase
     [ProducesResponseType(StatusCodes.Status201Created)]
     public async Task<IActionResult> Create([FromBody] CreateProductDto dto)
     {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
-
         var result = await _service.CreateAsync(dto);
 
         return CreatedAtAction(
@@ -63,9 +61,6 @@ public class ProductController : ControllerBase
         int id,
         [FromBody] UpdateProductDto dto)
     {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
-
         var updated = await _service.UpdateAsync(id, dto);
 
         return Ok(updated);

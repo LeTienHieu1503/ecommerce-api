@@ -16,11 +16,15 @@ public class CategoryService : ICategoryService
         _context = context;
     }
 
-    public async Task<List<CategoryResponseDto>> GetAllAsync()
+    public async Task<List<CategoryResponseDto>> GetAllAsync(int page, int pageSize)
     {
+        if (page <= 0) page = 1;
+        if (pageSize <= 0) pageSize = 10;
         return await _context.Categories
             .AsNoTracking()
             .OrderBy(c => c.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(c => new CategoryResponseDto
             {
                 Id = c.Id,
@@ -47,8 +51,6 @@ public class CategoryService : ICategoryService
 
     public async Task<CategoryResponseDto> CreateAsync(CreateCategoryDto dto)
     {
-        if (string.IsNullOrWhiteSpace(dto.Name))
-            throw new ValidationException("Category name is required");
 
         var category = new Ecommerce.API.Models.Category
         {
@@ -72,9 +74,6 @@ public class CategoryService : ICategoryService
 
         if (category == null)
             throw new NotFoundException("Category not found");
-
-        if (string.IsNullOrWhiteSpace(dto.Name))
-            throw new ValidationException("Category name is required");
 
         category.Name = dto.Name;
 
