@@ -1,6 +1,8 @@
-using Microsoft.AspNetCore.Mvc;
+using Ecommerce.API.Common.Pagination;
 using Ecommerce.API.DTOs.Category;
+using Ecommerce.API.Services.Category.Implementations;
 using Ecommerce.API.Services.Category.Interfaces;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Ecommerce.API.Controllers;
 
@@ -17,18 +19,12 @@ public class CategoryController : ControllerBase
 
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAll(
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 10)
+    [HttpGet]
+    public async Task<IActionResult> GetCategories([FromQuery] CategoryQuery query)
     {
-        var result = await _service.GetAllAsync(page, pageSize);
+        var result = await _service.GetAllAsync(query);
 
-        return Ok(new
-        {
-            page,
-            pageSize,
-            data = result
-        });
+        return Ok(result);
     }
 
     [HttpGet("{id}")]

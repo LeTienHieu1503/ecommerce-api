@@ -1,10 +1,11 @@
 using Ecommerce.API.DTOs.Category;
+using Ecommerce.API.Common.Pagination;
 
 namespace Ecommerce.API.Services.Category.Interfaces;
 
 public interface ICategoryService
 {
-    Task<List<CategoryResponseDto>> GetAllAsync(int page, int pageSize);
+    Task<PagedResult<CategoryResponseDto>> GetAllAsync(CategoryQuery query);
 
     Task<CategoryResponseDto> GetByIdAsync(int id);
 

@@ -1,3 +1,5 @@
+using Ecommerce.API.Common.Pagination;
+using Ecommerce.API.Common.Sorting;
 using Ecommerce.API.Data;
 using Ecommerce.API.DTOs.Product;
 using Ecommerce.API.Exceptions;
@@ -59,16 +61,54 @@ public class ProductService : IProductService
         return product;
     }
 
-    public async Task<List<ProductResponseDto>> GetAllAsync(int page, int pageSize)
-    {
-        if (page <= 0) page = 1;
-        if (pageSize <= 0) pageSize = 10;
+    //public async Task<PagedResult<ProductResponseDto>> GetAllAsync(PaginationParams pagination)
+    //{
+    //    var query = _context.Products
+    //        .Where(p => !p.IsDeleted)
+    //        .OrderBy(p => p.Id)
+    //        .Select(p => new ProductResponseDto
+    //        {
+    //            Id = p.Id,
+    //            Name = p.Name,
+    //            Price = p.Price,
+    //            CategoryId = p.CategoryId,
+    //            CategoryName = p.Category.Name,
+    //            CreatedAt = p.CreatedAt,
+    //            UpdatedAt = p.UpdatedAt
+    //        })
+    //        .AsNoTracking();
 
-        return await _context.Products
+    //    return await query.ToPagedResultAsync(pagination.Page, pagination.PageSize);
+    //}
+    public async Task<PagedResult<ProductResponseDto>> GetAllAsync(ProductQuery query)
+    {
+        var products = _context.Products
             .Where(p => !p.IsDeleted)
-            .OrderBy(p => p.Id)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            products = products.Where(p => p.Name.Contains(query.Search));
+        }
+
+        if (query.CategoryId.HasValue)
+        {
+            products = products.Where(p => p.CategoryId == query.CategoryId);
+        }
+
+        if (query.MinPrice.HasValue)
+        {
+            products = products.Where(p => p.Price >= query.MinPrice);
+        }
+
+        if (query.MaxPrice.HasValue)
+        {
+            products = products.Where(p => p.Price <= query.MaxPrice);
+        }
+
+        //products = products.ApplySorting(query.SortBy, query.SortOrder);
+
+        var dtoQuery = products
             .Select(p => new ProductResponseDto
             {
                 Id = p.Id,
@@ -79,8 +119,9 @@ public class ProductService : IProductService
                 CreatedAt = p.CreatedAt,
                 UpdatedAt = p.UpdatedAt
             })
-            .AsNoTracking()
-            .ToListAsync();
+            .AsNoTracking();
+
+        return await dtoQuery.ToPagedResultAsync(query.Page, query.PageSize);
     }
 
     public async Task<ProductResponseDto> UpdateAsync(int id, UpdateProductDto dto)

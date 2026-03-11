@@ -12,5 +12,5 @@ public class CreateProductDto
     public decimal Price { get; set; }
 
     [Required]
-    public int CategoryId { get; set; }
-}   
+    public int CategoryId { get; set; }                             
+}

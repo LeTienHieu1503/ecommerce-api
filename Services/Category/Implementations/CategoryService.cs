@@ -1,9 +1,11 @@
-using Microsoft.EntityFrameworkCore;
+using Ecommerce.API.Common.Pagination;
+using Ecommerce.API.Common.Sorting;
 using Ecommerce.API.Data;
 using Ecommerce.API.DTOs.Category;
+using Ecommerce.API.Exceptions;
 using Ecommerce.API.Models;
 using Ecommerce.API.Services.Category.Interfaces;
-using Ecommerce.API.Exceptions;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ecommerce.API.Services.Category.Implementations;
 
@@ -16,21 +18,27 @@ public class CategoryService : ICategoryService
         _context = context;
     }
 
-    public async Task<List<CategoryResponseDto>> GetAllAsync(int page, int pageSize)
+    public async Task<PagedResult<CategoryResponseDto>> GetAllAsync(CategoryQuery query)
     {
-        if (page <= 0) page = 1;
-        if (pageSize <= 0) pageSize = 10;
-        return await _context.Categories
-            .AsNoTracking()
-            .OrderBy(c => c.Id)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+        var categories = _context.Categories
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            categories = categories.Where(c => c.Name.Contains(query.Search));
+        }
+
+        //categories = categories.ApplySorting(query.SortBy, query.SortOrder);
+
+        var dtoQuery = categories
             .Select(c => new CategoryResponseDto
             {
                 Id = c.Id,
                 Name = c.Name
             })
-            .ToListAsync();
+            .AsNoTracking();
+
+        return await dtoQuery.ToPagedResultAsync(query.Page, query.PageSize);
     }
 
     public async Task<CategoryResponseDto> GetByIdAsync(int id)

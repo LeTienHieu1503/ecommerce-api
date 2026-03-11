@@ -1,4 +1,5 @@
 using Ecommerce.API.DTOs.Product;
+using Ecommerce.API.Common.Pagination;
 
 namespace Ecommerce.API.Services.Product.Interfaces;
 
@@ -8,7 +9,7 @@ public interface IProductService
 
     Task<ProductResponseDto> GetByIdAsync(int id);
 
-    Task<List<ProductResponseDto>> GetAllAsync(int page, int pageSize);
+    Task<PagedResult<ProductResponseDto>> GetAllAsync(ProductQuery query);
 
     Task<ProductResponseDto> UpdateAsync(int id, UpdateProductDto dto);
 
