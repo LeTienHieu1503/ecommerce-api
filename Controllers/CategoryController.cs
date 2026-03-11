@@ -2,10 +2,12 @@ using Ecommerce.API.Common.Pagination;
 using Ecommerce.API.DTOs.Category;
 using Ecommerce.API.Services.Category.Implementations;
 using Ecommerce.API.Services.Category.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Ecommerce.API.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 public class CategoryController : BaseApiController

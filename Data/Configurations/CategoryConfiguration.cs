@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Ecommerce.API.Models;
 
@@ -11,6 +11,9 @@ namespace Ecommerce.API.Configurations
             builder.ToTable("Categories");
 
             builder.HasKey(c => c.Id);
+
+            builder.Property(c => c.CreatedAt)
+                .HasDefaultValueSql("GETUTCDATE()");
 
             builder.Property(c => c.Name)
                 .IsRequired()

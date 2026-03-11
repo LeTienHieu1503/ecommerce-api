@@ -4,10 +4,12 @@ using Ecommerce.API.Models;
 using Ecommerce.API.Responses;
 using Ecommerce.API.Services.Product.Implementations;
 using Ecommerce.API.Services.Product.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Ecommerce.API.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 public class ProductController : BaseApiController
