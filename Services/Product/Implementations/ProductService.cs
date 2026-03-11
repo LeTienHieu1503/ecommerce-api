@@ -61,25 +61,6 @@ public class ProductService : IProductService
         return product;
     }
 
-    //public async Task<PagedResult<ProductResponseDto>> GetAllAsync(PaginationParams pagination)
-    //{
-    //    var query = _context.Products
-    //        .Where(p => !p.IsDeleted)
-    //        .OrderBy(p => p.Id)
-    //        .Select(p => new ProductResponseDto
-    //        {
-    //            Id = p.Id,
-    //            Name = p.Name,
-    //            Price = p.Price,
-    //            CategoryId = p.CategoryId,
-    //            CategoryName = p.Category.Name,
-    //            CreatedAt = p.CreatedAt,
-    //            UpdatedAt = p.UpdatedAt
-    //        })
-    //        .AsNoTracking();
-
-    //    return await query.ToPagedResultAsync(pagination.Page, pagination.PageSize);
-    //}
     public async Task<PagedResult<ProductResponseDto>> GetAllAsync(ProductQuery query)
     {
         var products = _context.Products

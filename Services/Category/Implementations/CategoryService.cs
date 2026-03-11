@@ -31,10 +31,13 @@ public class CategoryService : ICategoryService
         //categories = categories.ApplySorting(query.SortBy, query.SortOrder);
 
         var dtoQuery = categories
+            .Where(c => !c.IsDeleted)
             .Select(c => new CategoryResponseDto
             {
                 Id = c.Id,
-                Name = c.Name
+                Name = c.Name,
+                CreatedAt = c.CreatedAt,
+                UpdatedAt = c.UpdatedAt
             })
             .AsNoTracking();
 
@@ -45,7 +48,7 @@ public class CategoryService : ICategoryService
     {
         var category = await _context.Categories
             .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Id == id);
+            .FirstOrDefaultAsync(c => c.Id == id && !c.IsDeleted);
 
         if (category == null)
             throw new NotFoundException("Category not found");
@@ -53,7 +56,9 @@ public class CategoryService : ICategoryService
         return new CategoryResponseDto
         {
             Id = category.Id,
-            Name = category.Name
+            Name = category.Name,
+            CreatedAt = category.CreatedAt,
+            UpdatedAt = category.UpdatedAt
         };
     }
 
@@ -62,7 +67,7 @@ public class CategoryService : ICategoryService
 
         var category = new Ecommerce.API.Models.Category
         {
-            Name = dto.Name
+            Name = dto.Name,
         };
 
         _context.Categories.Add(category);
@@ -71,7 +76,9 @@ public class CategoryService : ICategoryService
         return new CategoryResponseDto
         {
             Id = category.Id,
-            Name = category.Name
+            Name = category.Name,
+            CreatedAt = category.CreatedAt,
+            UpdatedAt = category.UpdatedAt
         };
     }
 
@@ -84,13 +91,16 @@ public class CategoryService : ICategoryService
             throw new NotFoundException("Category not found");
 
         category.Name = dto.Name;
+        category.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
 
         return new CategoryResponseDto
         {
             Id = category.Id,
-            Name = category.Name
+            Name = category.Name,
+            CreatedAt = category.CreatedAt,
+            UpdatedAt = category.UpdatedAt
         };
     }
 
@@ -108,7 +118,8 @@ public class CategoryService : ICategoryService
         if (hasProducts)
             throw new BusinessException("Cannot delete category because it has products.");
 
-        _context.Categories.Remove(category);
+        category.IsDeleted = true;
+        category.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
     }

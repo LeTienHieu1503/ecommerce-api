@@ -8,7 +8,7 @@ namespace Ecommerce.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class CategoryController : ControllerBase
+public class CategoryController : BaseApiController
 {
     private readonly ICategoryService _service;
 
@@ -18,55 +18,44 @@ public class CategoryController : ControllerBase
     }
 
     [HttpGet]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [HttpGet]
     public async Task<IActionResult> GetCategories([FromQuery] CategoryQuery query)
     {
         var result = await _service.GetAllAsync(query);
 
-        return Ok(result);
+        return Success(result);
     }
 
     [HttpGet("{id}")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(int id)
     {
         var category = await _service.GetByIdAsync(id);
 
-        return Ok(category);
+        return Success(category);
     }
 
     [HttpPost]
-    [ProducesResponseType(StatusCodes.Status201Created)]
     public async Task<IActionResult> Create([FromBody] CreateCategoryDto dto)
     {
         var category = await _service.CreateAsync(dto);
 
-        return CreatedAtAction(nameof(GetById),
-            new { id = category.Id },
-            category);
+        return CreatedSuccess(category);
     }
 
     [HttpPut("{id}")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] UpdateCategoryDto dto)
     {
         var category = await _service.UpdateAsync(id, dto);
 
-        return Ok(category);
+        return UpdateSuccess(category);
     }
 
     [HttpDelete("{id}")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id)
     {
         await _service.DeleteAsync(id);
 
-        return NoContent();
+        return DeleteSuccess();
     }
 }

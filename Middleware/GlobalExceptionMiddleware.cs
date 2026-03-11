@@ -27,7 +27,7 @@ public class GlobalExceptionMiddleware
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, ex.Message);
+            _logger.LogError(ex, "Unhandled exception occurred");
 
             await HandleExceptionAsync(context, ex);
         }
@@ -41,23 +41,41 @@ public class GlobalExceptionMiddleware
         var errorCode = "INTERNAL_SERVER_ERROR";
         var message = "An unexpected error occurred";
 
-        if (exception is BaseException baseException)
+        switch (exception)
         {
-            statusCode = baseException.StatusCode;
-            errorCode = baseException.ErrorCode;
-            message = baseException.Message;
+            case BaseException baseException:
+                statusCode = baseException.StatusCode;
+                errorCode = baseException.ErrorCode;
+                message = baseException.Message;
+                break;
+
+            case UnauthorizedAccessException:
+                statusCode = (int)HttpStatusCode.Unauthorized;
+                errorCode = "UNAUTHORIZED";
+                message = exception.Message;
+                break;
+
+            case ArgumentException:
+                statusCode = (int)HttpStatusCode.BadRequest;
+                errorCode = "BAD_REQUEST";
+                message = exception.Message;
+                break;
+
+            case KeyNotFoundException:
+                statusCode = (int)HttpStatusCode.NotFound;
+                errorCode = "NOT_FOUND";
+                message = exception.Message;
+                break;
         }
 
         var traceId = Activity.Current?.Id ?? context.TraceIdentifier;
 
         var response = new ErrorResponse
         {
+            statusCode = statusCode,
             Success = false,
             ErrorCode = errorCode,
             Message = message,
-            Path = context.Request.Path,
-            TraceId = traceId,
-            Timestamp = DateTime.UtcNow
         };
 
         var json = JsonSerializer.Serialize(response);
