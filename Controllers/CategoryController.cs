@@ -1,3 +1,4 @@
+using Ecommerce.API.Authorization.Policies;
 using Ecommerce.API.Common.Pagination;
 using Ecommerce.API.DTOs.Category;
 using Ecommerce.API.Services.Category.Implementations;
@@ -7,7 +8,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Ecommerce.API.Controllers;
 
-[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 public class CategoryController : BaseApiController
@@ -35,6 +35,7 @@ public class CategoryController : BaseApiController
         return Success(category);
     }
 
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateCategoryDto dto)
     {
@@ -43,6 +44,7 @@ public class CategoryController : BaseApiController
         return CreatedSuccess(category);
     }
 
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(
         int id,
@@ -53,6 +55,7 @@ public class CategoryController : BaseApiController
         return UpdateSuccess(category);
     }
 
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {

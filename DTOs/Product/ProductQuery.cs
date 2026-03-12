@@ -14,5 +14,5 @@ public class ProductQuery : PaginationParams
 
     public string? SortBy { get; set; }
 
-    //public string? SortOrder { get; set; } = "asc";
+    public string? SortOrder { get; set; } = "asc";
 }

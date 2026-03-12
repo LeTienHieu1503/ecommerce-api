@@ -1,3 +1,4 @@
+using Ecommerce.API.Authorization.Policies;
 using Ecommerce.API.Common.Pagination;
 using Ecommerce.API.DTOs.Product;
 using Ecommerce.API.Models;
@@ -9,7 +10,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Ecommerce.API.Controllers;
 
-[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 public class ProductController : BaseApiController
@@ -37,6 +37,7 @@ public class ProductController : BaseApiController
         return Success(product);
     }
 
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateProductDto dto)
     {
@@ -45,6 +46,7 @@ public class ProductController : BaseApiController
         return CreatedSuccess(result);
     }
 
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(
         int id,
@@ -55,6 +57,7 @@ public class ProductController : BaseApiController
         return UpdateSuccess(updated);
     }
 
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {

@@ -4,6 +4,7 @@ using Ecommerce.API.Data;
 using Ecommerce.API.DTOs.Category;
 using Ecommerce.API.Exceptions;
 using Ecommerce.API.Models;
+using Ecommerce.API.Repositories.Interfaces;
 using Ecommerce.API.Services.Category.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,44 +12,45 @@ namespace Ecommerce.API.Services.Category.Implementations;
 
 public class CategoryService : ICategoryService
 {
-    private readonly ApplicationDbContext _context;
+    private readonly ICategoryRepository _categoryRepository;
 
-    public CategoryService(ApplicationDbContext context)
+    public CategoryService(ICategoryRepository categoryRepository)
     {
-        _context = context;
+        _categoryRepository = categoryRepository;
     }
 
     public async Task<PagedResult<CategoryResponseDto>> GetAllAsync(CategoryQuery query)
     {
-        var categories = _context.Categories
-            .AsQueryable();
+        var categories = _categoryRepository.GetQueryable();
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            categories = categories.Where(c => c.Name.Contains(query.Search));
+            categories = categories.Where(c => c.Name.StartsWith(query.Search));
         }
 
-        //categories = categories.ApplySorting(query.SortBy, query.SortOrder);
+        categories = query.SortBy?.ToLower() switch
+        {
+            "name" => query.SortOrder == "desc"
+                ? categories.OrderByDescending(c => c.Name)
+                : categories.OrderBy(c => c.Name),
 
-        var dtoQuery = categories
-            .Where(c => !c.IsDeleted)
-            .Select(c => new CategoryResponseDto
-            {
-                Id = c.Id,
-                Name = c.Name,
-                CreatedAt = c.CreatedAt,
-                UpdatedAt = c.UpdatedAt
-            })
-            .AsNoTracking();
+            _ => categories.OrderBy(c => c.Id)
+        };
+
+        var dtoQuery = categories.Select(c => new CategoryResponseDto
+        {
+            Id = c.Id,
+            Name = c.Name,
+            CreatedAt = c.CreatedAt,
+            UpdatedAt = c.UpdatedAt
+        });
 
         return await dtoQuery.ToPagedResultAsync(query.Page, query.PageSize);
     }
 
     public async Task<CategoryResponseDto> GetByIdAsync(int id)
     {
-        var category = await _context.Categories
-            .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Id == id && !c.IsDeleted);
+        var category = await _categoryRepository.GetByIdAsync(id);
 
         if (category == null)
             throw new NotFoundException("Category not found");
@@ -64,14 +66,13 @@ public class CategoryService : ICategoryService
 
     public async Task<CategoryResponseDto> CreateAsync(CreateCategoryDto dto)
     {
-
-        var category = new Ecommerce.API.Models.Category
+        var category = new Models.Category
         {
-            Name = dto.Name,
+            Name = dto.Name
         };
 
-        _context.Categories.Add(category);
-        await _context.SaveChangesAsync();
+        await _categoryRepository.AddAsync(category);
+        await _categoryRepository.SaveChangesAsync();
 
         return new CategoryResponseDto
         {
@@ -84,8 +85,7 @@ public class CategoryService : ICategoryService
 
     public async Task<CategoryResponseDto> UpdateAsync(int id, UpdateCategoryDto dto)
     {
-        var category = await _context.Categories
-            .FirstOrDefaultAsync(c => c.Id == id);
+        var category = await _categoryRepository.GetByIdAsync(id);
 
         if (category == null)
             throw new NotFoundException("Category not found");
@@ -93,7 +93,7 @@ public class CategoryService : ICategoryService
         category.Name = dto.Name;
         category.UpdatedAt = DateTime.UtcNow;
 
-        await _context.SaveChangesAsync();
+        await _categoryRepository.SaveChangesAsync();
 
         return new CategoryResponseDto
         {
@@ -106,14 +106,12 @@ public class CategoryService : ICategoryService
 
     public async Task DeleteAsync(int id)
     {
-        var category = await _context.Categories
-            .FirstOrDefaultAsync(c => c.Id == id);
+        var category = await _categoryRepository.GetByIdAsync(id);
 
         if (category == null)
             throw new NotFoundException("Category not found");
 
-        var hasProducts = await _context.Products
-            .AnyAsync(p => p.CategoryId == id);
+        var hasProducts = await _categoryRepository.HasProductsAsync(id);
 
         if (hasProducts)
             throw new BusinessException("Cannot delete category because it has products.");
@@ -121,6 +119,6 @@ public class CategoryService : ICategoryService
         category.IsDeleted = true;
         category.UpdatedAt = DateTime.UtcNow;
 
-        await _context.SaveChangesAsync();
+        await _categoryRepository.SaveChangesAsync();
     }
 }

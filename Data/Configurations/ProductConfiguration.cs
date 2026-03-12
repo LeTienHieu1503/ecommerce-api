@@ -29,6 +29,8 @@ namespace Ecommerce.API.Configurations
 
             builder.HasIndex(p => p.CategoryId);
 
+            builder.HasIndex(p => p.Price);
+
             builder.HasIndex(p => new { p.CategoryId, p.Id });
 
             builder.HasQueryFilter(p => !p.IsDeleted);
