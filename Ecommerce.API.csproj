@@ -4,19 +4,39 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+  <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.25" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.24" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.24" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.24">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <PackageReference Include="System.Formats.Asn1" Version="10.0.4" />
     <PackageReference Include="System.Linq.Dynamic.Core" Version="1.7.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="Ecommerce.Application\Ecommerce.Application.csproj" />
+    <ProjectReference Include="Ecommerce.Infrastructure\Ecommerce.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Ecommerce.Domain\**" />
+    <Content Remove="Ecommerce.Domain\**" />
+    <EmbeddedResource Remove="Ecommerce.Domain\**" />
+    <None Remove="Ecommerce.Domain\**" />
+
+    <Compile Remove="Ecommerce.Application\**" />
+    <Content Remove="Ecommerce.Application\**" />
+    <EmbeddedResource Remove="Ecommerce.Application\**" />
+    <None Remove="Ecommerce.Application\**" />
+
+    <Compile Remove="Ecommerce.Infrastructure\**" />
+    <Content Remove="Ecommerce.Infrastructure\**" />
+    <EmbeddedResource Remove="Ecommerce.Infrastructure\**" />
+    <None Remove="Ecommerce.Infrastructure\**" />
+  </ItemGroup>
 </Project>

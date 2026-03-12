@@ -1,4 +1,4 @@
-﻿namespace Ecommerce.API.Authorization.Policies;
+namespace Ecommerce.API.Authorization.Policies;
 
 public static class AuthorizationPolicies
 {

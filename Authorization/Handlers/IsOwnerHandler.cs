@@ -1,4 +1,4 @@
-﻿using Ecommerce.API.Authorization.Requirements;
+using Ecommerce.API.Authorization.Requirements;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 

@@ -1,4 +1,4 @@
-using Ecommerce.API.Exceptions;
+using Ecommerce.Domain.Exceptions;
 using Ecommerce.API.Responses;
 using System.Net;
 using System.Text.Json;

@@ -1,15 +1,11 @@
-using Ecommerce.API.Authorization.Policies;
-using Ecommerce.API.Authorization.Policies;
-using Ecommerce.API.Data;
+using System.Text.Json.Serialization;
+using Ecommerce.Infrastructure.Data;
+using Ecommerce.Infrastructure.Repositories;
+using Ecommerce.Domain.Interfaces;
+using Ecommerce.Application.Interfaces;
+using Ecommerce.Application.Services;
 using Ecommerce.API.Middleware;
-using Ecommerce.API.Repositories.Implementations;
-using Ecommerce.API.Repositories.Interfaces;
-using Ecommerce.API.Services.Auth.Implementations;
-using Ecommerce.API.Services.Auth.Interfaces;
-using Ecommerce.API.Services.Category.Implementations;
-using Ecommerce.API.Services.Category.Interfaces;
-using Ecommerce.API.Services.Product.Implementations;
-using Ecommerce.API.Services.Product.Interfaces;
+using Ecommerce.API.Authorization.Policies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -99,13 +95,14 @@ builder.Services.AddAuthorization(options =>
 });
 
 // Register application services for Dependency Injection
-builder.Services.AddScoped<ICategoryService, CategoryService>();
-builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
-
-builder.Services.AddScoped<IProductService, ProductService>();
-builder.Services.AddScoped<IProductRepository, ProductRepository>();
-
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<ICategoryService, CategoryService>();
+builder.Services.AddScoped<IProductService, ProductService>();
+
+// Register repositories for Dependency Injection
+builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
+builder.Services.AddScoped<IProductRepository, ProductRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
 
 builder.Services.AddControllers();
 

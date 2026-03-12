@@ -1,8 +1,11 @@
+using Ecommerce.Application.DTOs;
+using Ecommerce.Application.DTOs.Auth;
+using Ecommerce.Application.DTOs.Category;
+using Ecommerce.Application.DTOs.Product;
+using Ecommerce.Application.Common.Sorting;
+using Ecommerce.Domain.Common.Pagination;
 using Ecommerce.API.Authorization.Policies;
-using Ecommerce.API.Common.Pagination;
-using Ecommerce.API.DTOs.Category;
-using Ecommerce.API.Services.Category.Implementations;
-using Ecommerce.API.Services.Category.Interfaces;
+using Ecommerce.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
