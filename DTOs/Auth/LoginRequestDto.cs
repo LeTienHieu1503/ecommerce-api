@@ -4,10 +4,10 @@ namespace Ecommerce.API.DTOs.Auth
 {
     public class LoginRequestDto
     {
-        [Required]
+        [Required (ErrorMessage = "Email is Required")]
         public string Email { get; set; } = null!;
 
-        [Required]
+        [Required (ErrorMessage = "Password is Required")]
         public string Password { get; set; } = null!;
     }
 }
