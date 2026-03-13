@@ -5,16 +5,21 @@ using Ecommerce.Domain.Exceptions;
 using Ecommerce.Domain.Entities;
 using Ecommerce.Domain.Interfaces;
 using Ecommerce.Application.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace Ecommerce.Application.Services;
 
 public class CategoryService : ICategoryService
 {
     private readonly ICategoryRepository _categoryRepository;
+    private readonly ILogger<CategoryService> _logger;
 
-    public CategoryService(ICategoryRepository categoryRepository)
+    public CategoryService(
+    ICategoryRepository categoryRepository,
+    ILogger<CategoryService> logger)
     {
         _categoryRepository = categoryRepository;
+        _logger = logger;
     }
 
     public async Task<PagedResult<CategoryResponseDto>> GetAllAsync(CategoryQuery query)
@@ -48,10 +53,15 @@ public class CategoryService : ICategoryService
 
     public async Task<CategoryResponseDto> GetByIdAsync(int id)
     {
+        _logger.LogInformation("Getting category {CategoryId}", id);
+
         var category = await _categoryRepository.GetByIdAsync(id);
 
         if (category == null)
+        {
+            _logger.LogWarning("Category not found {CategoryId}", id);
             throw new NotFoundException("Category not found");
+        }
 
         return new CategoryResponseDto
         {
@@ -64,6 +74,10 @@ public class CategoryService : ICategoryService
 
     public async Task<CategoryResponseDto> CreateAsync(CreateCategoryDto dto)
     {
+        _logger.LogInformation(
+            "Creating category {CategoryName}",
+            dto.Name);
+
         var category = new Category
         {
             Name = dto.Name
@@ -83,10 +97,15 @@ public class CategoryService : ICategoryService
 
     public async Task<CategoryResponseDto> UpdateAsync(int id, UpdateCategoryDto dto)
     {
+        _logger.LogInformation("Updating category {CategoryId}", id);
+
         var category = await _categoryRepository.GetByIdAsync(id);
 
         if (category == null)
+        {
+            _logger.LogWarning("Category not found {CategoryId}", id);
             throw new NotFoundException("Category not found");
+        }
 
         category.Name = dto.Name;
         category.UpdatedAt = DateTime.UtcNow;
@@ -104,15 +123,27 @@ public class CategoryService : ICategoryService
 
     public async Task DeleteAsync(int id)
     {
+        _logger.LogInformation("Deleting category {CategoryId}", id);
+
         var category = await _categoryRepository.GetByIdAsync(id);
 
         if (category == null)
+        {
+            _logger.LogWarning("Category not found {CategoryId}", id);
             throw new NotFoundException("Category not found");
+        }
 
         var hasProducts = await _categoryRepository.HasProductsAsync(id);
 
         if (hasProducts)
-            throw new BusinessException("Cannot delete category because it has products.");
+        {
+            _logger.LogWarning(
+                "Cannot delete category {CategoryId} because it has products",
+                id);
+
+            throw new BusinessException(
+                "Cannot delete category because it has products.");
+        }
 
         category.IsDeleted = true;
         category.UpdatedAt = DateTime.UtcNow;

@@ -1,19 +1,39 @@
-using System.Text.Json.Serialization;
-using Ecommerce.Infrastructure.Data;
-using Ecommerce.Infrastructure.Repositories;
-using Ecommerce.Domain.Interfaces;
+using Ecommerce.API.Authorization.Policies;
+using Ecommerce.API.Middleware;
 using Ecommerce.Application.Interfaces;
 using Ecommerce.Application.Services;
-using Ecommerce.API.Middleware;
-using Ecommerce.API.Authorization.Policies;
+using Ecommerce.Domain.Interfaces;
+using Ecommerce.Infrastructure.Data;
+using Ecommerce.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Serilog;
+using System.Diagnostics;
 using System.Text;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
+
+//LogFile
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+
+    .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("System", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning)
+
+    .WriteTo.Console()
+    .WriteTo.File(
+        "logs/log-.txt",
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 30
+    )
+    .CreateLogger();
+
+builder.Host.UseSerilog();
 
 // Register DbContext and configure SQL Server connection
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -49,8 +69,41 @@ builder.Services
     // Customize responses for authentication/authorization failures
     options.Events = new JwtBearerEvents
     {
+        OnAuthenticationFailed = context =>
+        {
+            var logger = context.HttpContext.RequestServices
+                .GetRequiredService<ILogger<Program>>();
+
+            logger.LogWarning(
+                "JWT authentication failed: {Message}",
+                context.Exception.Message);
+
+            return Task.CompletedTask;
+        },
+
+        OnTokenValidated = context =>
+        {
+            var logger = context.HttpContext.RequestServices
+                .GetRequiredService<ILogger<Program>>();
+
+            var username = context.Principal?.Identity?.Name;
+
+            logger.LogInformation(
+                "JWT validated for user {User}",
+                username);
+
+            return Task.CompletedTask;
+        },
+
         OnChallenge = async context =>
         {
+            var logger = context.HttpContext.RequestServices
+                .GetRequiredService<ILogger<Program>>();
+
+            logger.LogWarning(
+                "Unauthorized request to {Path}",
+                context.HttpContext.Request.Path);
+
             context.HandleResponse();
 
             context.Response.StatusCode = 401;
@@ -58,7 +111,7 @@ builder.Services
 
             var response = new
             {
-                statusCode = context.Response.StatusCode,
+                statusCode = 401,
                 success = false,
                 errorCode = "UNAUTHORIZED",
                 message = "You are not authorized to access this resource"
@@ -69,12 +122,20 @@ builder.Services
 
         OnForbidden = async context =>
         {
+            var logger = context.HttpContext.RequestServices
+                .GetRequiredService<ILogger<Program>>();
+
+            logger.LogWarning(
+                "Forbidden request by user {User} to {Path}",
+                context.HttpContext.User.Identity?.Name,
+                context.HttpContext.Request.Path);
+
             context.Response.StatusCode = 403;
             context.Response.ContentType = "application/json";
 
             var response = new
             {
-                statusCode = context.Response.StatusCode,
+                statusCode = 403,
                 success = false,
                 errorCode = "FORBIDDEN",
                 message = "You do not have permission"
@@ -172,6 +233,33 @@ if (app.Environment.IsDevelopment())
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
 app.UseHttpsRedirection();
+
+//Logging
+app.Use(async (context, next) =>
+{
+    var logger = context.RequestServices
+        .GetRequiredService<ILogger<Program>>();
+
+    var method = context.Request.Method;
+    var path = context.Request.Path;
+
+    var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+    await next();
+
+    var statusCode = context.Response.StatusCode;
+
+    var user = context.User?.Identity?.Name ?? "anonymous";
+
+    logger.LogInformation(
+        "User {User} -> {Method} {Path} -> {StatusCode} ({Elapsed} ms)",
+        user,
+        method,
+        path,
+        statusCode,
+        stopwatch.ElapsedMilliseconds
+    );
+});
 
 app.UseAuthentication();
 app.UseAuthorization();

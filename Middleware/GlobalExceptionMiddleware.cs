@@ -1,8 +1,6 @@
 using Ecommerce.API.Responses;
 using Ecommerce.Domain.Exceptions;
-using Microsoft.EntityFrameworkCore;
-using System.ComponentModel;
-using System.Diagnostics;
+using System;
 using System.Net;
 using System.Text.Json;
 
@@ -29,7 +27,33 @@ public class GlobalExceptionMiddleware
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unhandled exception occurred");
+            var path = context.Request.Path;
+            var traceId = context.TraceIdentifier;
+
+            if (ex is BaseException baseException)
+            {
+                if (baseException.StatusCode >= 500)
+                {
+                    _logger.LogError(ex,
+                        "Server error. Path: {Path}, TraceId: {TraceId}",
+                        path, traceId);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Client error: {Message}. Path: {Path}, TraceId: {TraceId}",
+                        baseException.Message,
+                        path,
+                        traceId);
+                }
+            }
+            else
+            {
+                _logger.LogError(ex,
+                    "Unhandled exception. Path: {Path}, TraceId: {TraceId}",
+                    path,
+                    traceId);
+            }
 
             await HandleExceptionAsync(context, ex);
         }

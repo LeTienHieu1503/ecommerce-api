@@ -5,25 +5,37 @@ using Ecommerce.Application.DTOs.Product;
 using Ecommerce.Domain.Exceptions;
 using Ecommerce.Domain.Interfaces;
 using Ecommerce.Application.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace Ecommerce.Application.Services;
 
 public class ProductService : IProductService
 {
     private readonly IProductRepository _productRepository;
+    private readonly ILogger<ProductService> _logger;
 
-    public ProductService(IProductRepository productRepository)
+    public ProductService(
+        IProductRepository productRepository,
+        ILogger<ProductService> logger)
     {
         _productRepository = productRepository;
+        _logger = logger;
     }
 
     public async Task<ProductResponseDto> CreateAsync(CreateProductDto dto)
     {
+        _logger.LogInformation(
+            "Creating product {ProductName} in category {CategoryId}",
+            dto.Name,
+            dto.CategoryId);
+
         var categoryExists = await _productRepository.CategoryExistsAsync(dto.CategoryId);
 
         if (!categoryExists)
+        {
+            _logger.LogWarning("Category not found: {CategoryId}", dto.CategoryId);
             throw new NotFoundException("Category not found");
-
+        }
         var product = new Product
         {
             Name = dto.Name,
@@ -40,10 +52,15 @@ public class ProductService : IProductService
 
     public async Task<ProductResponseDto> GetByIdAsync(int id)
     {
+        _logger.LogInformation("Getting product {ProductId}", id);
+
         var product = await _productRepository.GetByIdAsync(id);
 
         if (product == null)
+        {
+            _logger.LogWarning("Product not found {ProductId}", id);
             throw new NotFoundException("Product not found");
+        }
 
         return new ProductResponseDto
         {
@@ -110,6 +127,8 @@ public class ProductService : IProductService
 
     public async Task<ProductResponseDto> UpdateAsync(int id, UpdateProductDto dto)
     {
+        _logger.LogInformation("Updating product {ProductId}", id);
+
         var product = await _productRepository.GetByIdAsync(id);
 
         if (product == null)
@@ -132,6 +151,8 @@ public class ProductService : IProductService
 
     public async Task DeleteAsync(int id)
     {
+        _logger.LogInformation("Soft deleting product {ProductId}", id);
+
         var product = await _productRepository.GetByIdAsync(id);
 
         if (product == null)
