@@ -20,6 +20,10 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Product>()
             .HasQueryFilter(p => !p.IsDeleted);
 
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.Email)
+            .IsUnique();
+
         base.OnModelCreating(modelBuilder);
     }
 

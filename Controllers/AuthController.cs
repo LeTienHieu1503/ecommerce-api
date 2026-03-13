@@ -8,7 +8,7 @@ namespace Ecommerce.API.Controllers;
 
 [ApiController]
 [Route("api/auth")]
-public class AuthController : ControllerBase
+public class AuthController : BaseApiController
 {
     private readonly IAuthService _authService;
 
@@ -22,18 +22,15 @@ public class AuthController : ControllerBase
     {
         await _authService.RegisterAsync(request);
 
-        return Ok(new
-        {
-            message = "User registered successfully"
-        });
+        return Success("", "Register successfully");
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<LoginResponseDto>> Login(LoginRequestDto request)
+    public async Task<IActionResult> Login(LoginRequestDto request)
     {
         var result = await _authService.LoginAsync(request);
 
-        return Ok(result);
+        return Success(result, "Login successfully");
     }
 
     [Authorize]
@@ -43,10 +40,10 @@ public class AuthController : ControllerBase
         var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var email = User.FindFirst(ClaimTypes.Email)?.Value;
 
-        return Ok(new
+        return Success(new
         {
-            userId,
-            email
+            Id = userId,
+            Email = email
         });
     }
 }

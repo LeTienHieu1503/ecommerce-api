@@ -28,7 +28,7 @@ public class AuthService : IAuthService
 
         if (existingUser)
         {
-            throw new Exception("Email already exists");
+            throw new ArgumentException("Email already exists");
         }
 
         var passwordHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
@@ -67,7 +67,10 @@ public class AuthService : IAuthService
 
         return new LoginResponseDto
         {
-            Token = token
+            Token = token,
+            Id = user.Id,
+            Email = user.Email,
+            Role = user.Role
         };
     }
 

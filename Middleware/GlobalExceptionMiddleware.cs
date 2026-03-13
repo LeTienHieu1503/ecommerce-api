@@ -1,9 +1,10 @@
-using Ecommerce.Domain.Exceptions;
 using Ecommerce.API.Responses;
+using Ecommerce.Domain.Exceptions;
+using Microsoft.EntityFrameworkCore;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
-using System.Diagnostics;
-using System.ComponentModel;
 
 namespace Ecommerce.API.Middleware;
 
@@ -51,8 +52,8 @@ public class GlobalExceptionMiddleware
                 break;
 
             case UnauthorizedAccessException:
-                statusCode = (int)HttpStatusCode.Unauthorized;
-                errorCode = "UNAUTHORIZED";
+                statusCode = (int)HttpStatusCode.Forbidden;
+                errorCode = "FORBIDDEN";
                 message = exception.Message;
                 break;
 
@@ -68,8 +69,6 @@ public class GlobalExceptionMiddleware
                 message = exception.Message;
                 break;
         }
-
-        var traceId = Activity.Current?.Id ?? context.TraceIdentifier;
 
         var response = new ErrorResponse
         {
