@@ -2,10 +2,13 @@ using Ecommerce.Domain.Entities;
 using Ecommerce.Domain.Common.Pagination;
 using Ecommerce.Application.Common.Sorting;
 using Ecommerce.Application.DTOs.Product;
+using Ecommerce.Application.Common.Mappers;
 using Ecommerce.Domain.Exceptions;
 using Ecommerce.Domain.Interfaces;
 using Ecommerce.Application.Interfaces;
 using Microsoft.Extensions.Logging;
+using Ecommerce.Application.Common.Caching;
+using Ecommerce.Application.Common.Logging;
 
 namespace Ecommerce.Application.Services;
 
@@ -13,19 +16,22 @@ public class ProductService : IProductService
 {
     private readonly IProductRepository _productRepository;
     private readonly ILogger<ProductService> _logger;
+    private readonly ICacheService _cache;
 
     public ProductService(
         IProductRepository productRepository,
-        ILogger<ProductService> logger)
+        ILogger<ProductService> logger,
+        ICacheService cache)
     {
         _productRepository = productRepository;
         _logger = logger;
+        _cache = cache;
     }
 
     public async Task<ProductResponseDto> CreateAsync(CreateProductDto dto)
     {
         _logger.LogInformation(
-            "Creating product {ProductName} in category {CategoryId}",
+            LogMessages.ProductCreating,
             dto.Name,
             dto.CategoryId);
 
@@ -46,36 +52,55 @@ public class ProductService : IProductService
         await _productRepository.AddAsync(product);
         await _productRepository.SaveChangesAsync();
 
+        await BumpProductListVersionAsync();
 
         return await GetByIdAsync(product.Id);
     }
 
     public async Task<ProductResponseDto> GetByIdAsync(int id)
     {
-        _logger.LogInformation("Getting product {ProductId}", id);
+        var cacheKey = CacheKeysProduct.Product(id);
+
+        var cached = await _cache.GetAsync<ProductResponseDto>(cacheKey);
+
+        if (cached != null)
+        {
+            _logger.LogInformation(LogMessages.ProductCacheHit, id);
+            return cached;
+        }
+
+        _logger.LogInformation(LogMessages.ProductCacheMiss, id);
 
         var product = await _productRepository.GetByIdAsync(id);
 
         if (product == null)
         {
-            _logger.LogWarning("Product not found {ProductId}", id);
+            _logger.LogWarning(LogMessages.ProductNotFound, id);
             throw new NotFoundException("Product not found");
         }
 
-        return new ProductResponseDto
-        {
-            Id = product.Id,
-            Name = product.Name,
-            Price = product.Price,
-            CategoryId = product.CategoryId,
-            CategoryName = product.Category.Name,
-            CreatedAt = product.CreatedAt,
-            UpdatedAt = product.UpdatedAt
-        };
+        var response = ProductMapper.ToDto(product);
+
+        await _cache.SetAsync(cacheKey, response, TimeSpan.FromMinutes(5));
+
+        return response;
     }
 
     public async Task<PagedResult<ProductResponseDto>> GetAllAsync(ProductQuery query)
     {
+        var version = await _cache.GetAsync<long?>(CacheKeysProduct.ProductListVersion()) ?? 0;
+        var cacheKey = CacheKeysProduct.ProductList(query, version);
+
+        var cached = await _cache.GetAsync<PagedResult<ProductResponseDto>>(cacheKey);
+
+        if (cached != null)
+        {
+            _logger.LogInformation(LogMessages.ProductCacheHit, query);
+            return cached;
+        }
+
+        _logger.LogInformation(LogMessages.ProductCacheMiss, query);
+
         var products = _productRepository.GetQueryable();
 
         if (!string.IsNullOrWhiteSpace(query.Search))
@@ -98,18 +123,7 @@ public class ProductService : IProductService
             products = products.Where(p => p.Price <= query.MaxPrice);
         }
 
-        products = query.SortBy?.ToLower() switch
-        {
-            "name" => query.SortOrder == "desc"
-                ? products.OrderByDescending(p => p.Name)
-                : products.OrderBy(p => p.Name),
-
-            "price" => query.SortOrder == "desc"
-                ? products.OrderByDescending(p => p.Price)
-                : products.OrderBy(p => p.Price),
-
-            _ => products.OrderBy(p => p.Id)
-        };
+        products = products.ApplySorting(query.SortBy, query.SortOrder);
 
         var dtoQuery = products.Select(p => new ProductResponseDto
         {
@@ -122,12 +136,23 @@ public class ProductService : IProductService
             UpdatedAt = p.UpdatedAt
         });
 
-        return await dtoQuery.ToPagedResultAsync(query.Page, query.PageSize);
+        var result = await dtoQuery.ToPagedResultAsync(query.Page, query.PageSize);
+
+        await _cache.SetAsync(cacheKey, result, TimeSpan.FromMinutes(2));
+        await _cache.SetAsync(CacheKeysProduct.ProductListVersion(), version, TimeSpan.FromDays(1));
+
+        return result;
+    }
+
+    private async Task BumpProductListVersionAsync()
+    {
+        var version = await _cache.GetAsync<long?>(CacheKeysProduct.ProductListVersion()) ?? 0;
+        await _cache.SetAsync(CacheKeysProduct.ProductListVersion(), version + 1, TimeSpan.FromDays(1));
     }
 
     public async Task<ProductResponseDto> UpdateAsync(int id, UpdateProductDto dto)
     {
-        _logger.LogInformation("Updating product {ProductId}", id);
+        _logger.LogInformation(LogMessages.ProductUpdating, id);
 
         var product = await _productRepository.GetByIdAsync(id);
 
@@ -146,12 +171,15 @@ public class ProductService : IProductService
 
         await _productRepository.SaveChangesAsync();
 
-        return await GetByIdAsync(product.Id);
+        await _cache.RemoveAsync(CacheKeysProduct.Product(id));
+        await BumpProductListVersionAsync();
+
+        return await GetByIdAsync(id);
     }
 
     public async Task DeleteAsync(int id)
     {
-        _logger.LogInformation("Soft deleting product {ProductId}", id);
+        _logger.LogInformation(LogMessages.ProductDeleting, id);
 
         var product = await _productRepository.GetByIdAsync(id);
 
@@ -162,5 +190,8 @@ public class ProductService : IProductService
         product.UpdatedAt = DateTime.UtcNow;
 
         await _productRepository.SaveChangesAsync();
+
+        await _cache.RemoveAsync(CacheKeysProduct.Product(id));
+        await BumpProductListVersionAsync();
     }
 }

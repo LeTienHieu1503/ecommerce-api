@@ -3,6 +3,7 @@ using Ecommerce.API.Middleware;
 using Ecommerce.Application.Interfaces;
 using Ecommerce.Application.Services;
 using Ecommerce.Domain.Interfaces;
+using Ecommerce.Infrastructure.Caching;
 using Ecommerce.Infrastructure.Data;
 using Ecommerce.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -159,6 +160,25 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<IProductService, ProductService>();
+// Cache: Redis when configured, otherwise in-memory (for local dev without Redis)
+var redisConnection = builder.Configuration.GetConnectionString("Redis");
+var redisEnabled = builder.Configuration.GetValue<bool>("Redis:Enabled");
+var redisInstanceName = builder.Configuration["Redis:InstanceName"] ?? "EcommerceAPI:";
+
+if (redisEnabled && !string.IsNullOrWhiteSpace(redisConnection))
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnection;
+        options.InstanceName = redisInstanceName;
+    });
+}
+else
+{
+    builder.Services.AddDistributedMemoryCache();
+}
+
+builder.Services.AddScoped<ICacheService, RedisCacheService>();
 
 // Register repositories for Dependency Injection
 builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
@@ -266,6 +286,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+//SeedAdmin
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider

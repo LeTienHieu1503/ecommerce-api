@@ -6,6 +6,9 @@ using Ecommerce.Domain.Entities;
 using Ecommerce.Domain.Interfaces;
 using Ecommerce.Application.Interfaces;
 using Microsoft.Extensions.Logging;
+using Ecommerce.Application.Common.Mappers;
+using Ecommerce.Application.Common.Logging;
+using Ecommerce.Application.Common.Caching;
 
 namespace Ecommerce.Application.Services;
 
@@ -13,13 +16,16 @@ public class CategoryService : ICategoryService
 {
     private readonly ICategoryRepository _categoryRepository;
     private readonly ILogger<CategoryService> _logger;
+    private readonly ICacheService _cache;
 
     public CategoryService(
     ICategoryRepository categoryRepository,
-    ILogger<CategoryService> logger)
+    ILogger<CategoryService> logger,
+    ICacheService cache)
     {
         _categoryRepository = categoryRepository;
         _logger = logger;
+        _cache = cache;
     }
 
     public async Task<PagedResult<CategoryResponseDto>> GetAllAsync(CategoryQuery query)
@@ -31,14 +37,7 @@ public class CategoryService : ICategoryService
             categories = categories.Where(c => c.Name.StartsWith(query.Search));
         }
 
-        categories = query.SortBy?.ToLower() switch
-        {
-            "name" => query.SortOrder == "desc"
-                ? categories.OrderByDescending(c => c.Name)
-                : categories.OrderBy(c => c.Name),
-
-            _ => categories.OrderBy(c => c.Id)
-        };
+        categories = categories.ApplySorting(query.SortBy, query.SortOrder);
 
         var dtoQuery = categories.Select(c => new CategoryResponseDto
         {
@@ -53,30 +52,35 @@ public class CategoryService : ICategoryService
 
     public async Task<CategoryResponseDto> GetByIdAsync(int id)
     {
-        _logger.LogInformation("Getting category {CategoryId}", id);
+        var cacheKey = CacheKeysCategory.Category(id);
+
+        var cached = await _cache.GetAsync<CategoryResponseDto>(cacheKey);
+
+        if (cached != null)
+        {
+            _logger.LogInformation(LogMessages.CategoryCacheHit, id);
+            return cached;
+        }
+
+        _logger.LogInformation(LogMessages.CategoryCacheMiss, id);
 
         var category = await _categoryRepository.GetByIdAsync(id);
 
         if (category == null)
         {
-            _logger.LogWarning("Category not found {CategoryId}", id);
+            _logger.LogWarning(LogMessages.CategoryNotFound, id);
             throw new NotFoundException("Category not found");
         }
 
-        return new CategoryResponseDto
-        {
-            Id = category.Id,
-            Name = category.Name,
-            CreatedAt = category.CreatedAt,
-            UpdatedAt = category.UpdatedAt
-        };
+        var dto = CategoryMapper.ToDto(category);
+        await _cache.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(10));
+
+        return dto;
     }
 
     public async Task<CategoryResponseDto> CreateAsync(CreateCategoryDto dto)
     {
-        _logger.LogInformation(
-            "Creating category {CategoryName}",
-            dto.Name);
+        _logger.LogInformation(LogMessages.CategoryCreating, dto.Name);
 
         var category = new Category
         {
@@ -86,24 +90,18 @@ public class CategoryService : ICategoryService
         await _categoryRepository.AddAsync(category);
         await _categoryRepository.SaveChangesAsync();
 
-        return new CategoryResponseDto
-        {
-            Id = category.Id,
-            Name = category.Name,
-            CreatedAt = category.CreatedAt,
-            UpdatedAt = category.UpdatedAt
-        };
+        return CategoryMapper.ToDto(category);
     }
 
     public async Task<CategoryResponseDto> UpdateAsync(int id, UpdateCategoryDto dto)
     {
-        _logger.LogInformation("Updating category {CategoryId}", id);
+        _logger.LogInformation(LogMessages.CategoryUpdating, id);
 
         var category = await _categoryRepository.GetByIdAsync(id);
 
         if (category == null)
         {
-            _logger.LogWarning("Category not found {CategoryId}", id);
+            _logger.LogWarning(LogMessages.CategoryNotFound, id);
             throw new NotFoundException("Category not found");
         }
 
@@ -112,24 +110,20 @@ public class CategoryService : ICategoryService
 
         await _categoryRepository.SaveChangesAsync();
 
-        return new CategoryResponseDto
-        {
-            Id = category.Id,
-            Name = category.Name,
-            CreatedAt = category.CreatedAt,
-            UpdatedAt = category.UpdatedAt
-        };
+        await _cache.RemoveAsync(CacheKeysCategory.Category(id));
+
+        return CategoryMapper.ToDto(category);
     }
 
     public async Task DeleteAsync(int id)
     {
-        _logger.LogInformation("Deleting category {CategoryId}", id);
+        _logger.LogInformation(LogMessages.CategoryDeleting, id);
 
         var category = await _categoryRepository.GetByIdAsync(id);
 
         if (category == null)
         {
-            _logger.LogWarning("Category not found {CategoryId}", id);
+            _logger.LogWarning(LogMessages.CategoryNotFound, id);
             throw new NotFoundException("Category not found");
         }
 
@@ -137,9 +131,7 @@ public class CategoryService : ICategoryService
 
         if (hasProducts)
         {
-            _logger.LogWarning(
-                "Cannot delete category {CategoryId} because it has products",
-                id);
+            _logger.LogWarning(LogMessages.CategoryHasProducts, id);
 
             throw new BusinessException(
                 "Cannot delete category because it has products.");
@@ -149,5 +141,7 @@ public class CategoryService : ICategoryService
         category.UpdatedAt = DateTime.UtcNow;
 
         await _categoryRepository.SaveChangesAsync();
+
+        await _cache.RemoveAsync(CacheKeysCategory.Category(id));
     }
 }

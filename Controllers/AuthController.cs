@@ -39,11 +39,13 @@ public class AuthController : BaseApiController
     {
         var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var email = User.FindFirst(ClaimTypes.Email)?.Value;
+        var role = User.FindFirst(ClaimTypes.Role)?.Value;
 
         return Success(new
         {
             Id = userId,
-            Email = email
+            Email = email,
+            Role = role
         });
     }
 }
