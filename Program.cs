@@ -15,6 +15,7 @@ using Serilog;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json.Serialization;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -35,6 +36,13 @@ Log.Logger = new LoggerConfiguration()
     .CreateLogger();
 
 builder.Host.UseSerilog();
+
+//Redis
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+{
+    var configuration = builder.Configuration.GetConnectionString("Redis");
+    return ConnectionMultiplexer.Connect(configuration);
+});
 
 // Register DbContext and configure SQL Server connection
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -160,6 +168,7 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<IProductService, ProductService>();
+
 // Cache: Redis when configured, otherwise in-memory (for local dev without Redis)
 var redisConnection = builder.Configuration.GetConnectionString("Redis");
 var redisEnabled = builder.Configuration.GetValue<bool>("Redis:Enabled");
@@ -178,9 +187,8 @@ else
     builder.Services.AddDistributedMemoryCache();
 }
 
-builder.Services.AddScoped<ICacheService, RedisCacheService>();
-
 // Register repositories for Dependency Injection
+builder.Services.AddScoped<ICacheService, RedisCacheService>();
 builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();

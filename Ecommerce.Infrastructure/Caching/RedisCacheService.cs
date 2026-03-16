@@ -1,21 +1,24 @@
-using System.Text.Json;
 using Ecommerce.Application.Interfaces;
 using Microsoft.Extensions.Caching.Distributed;
+using StackExchange.Redis;
+using System.Text.Json;
 
 namespace Ecommerce.Infrastructure.Caching;
 
 public class RedisCacheService : ICacheService
 {
     private readonly IDistributedCache _cache;
+    private readonly IConnectionMultiplexer _redis;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true
     };
 
-    public RedisCacheService(IDistributedCache cache)
+    public RedisCacheService(IDistributedCache cache, IConnectionMultiplexer redis)
     {
         _cache = cache;
+        _redis = redis;
     }
 
     public async Task<T?> GetAsync<T>(string key)

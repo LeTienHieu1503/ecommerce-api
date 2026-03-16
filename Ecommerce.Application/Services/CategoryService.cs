@@ -30,6 +30,20 @@ public class CategoryService : ICategoryService
 
     public async Task<PagedResult<CategoryResponseDto>> GetAllAsync(CategoryQuery query)
     {
+        var version = await _cache.GetAsync<long?>(CacheKeysCategory.CategoryListVersion()) ?? 0;
+
+        var cacheKey = CacheKeysCategory.CategoryList(query, version);
+
+        var cached = await _cache.GetAsync<PagedResult<CategoryResponseDto>>(cacheKey);
+
+        if (cached != null)
+        {
+            _logger.LogInformation(LogMessages.CategoryCacheHit, query);
+            return cached;
+        }
+
+        _logger.LogInformation(LogMessages.CategoryCacheMiss, query);
+
         var categories = _categoryRepository.GetQueryable();
 
         if (!string.IsNullOrWhiteSpace(query.Search))
@@ -47,7 +61,13 @@ public class CategoryService : ICategoryService
             UpdatedAt = c.UpdatedAt
         });
 
-        return await dtoQuery.ToPagedResultAsync(query.Page, query.PageSize);
+        var result = await dtoQuery.ToPagedResultAsync(query.Page, query.PageSize);
+
+        await _cache.SetAsync(cacheKey, result, TimeSpan.FromMinutes(5));
+
+        await _cache.SetAsync(CacheKeysCategory.CategoryListVersion(), version, TimeSpan.FromDays(1));
+
+        return result;
     }
 
     public async Task<CategoryResponseDto> GetByIdAsync(int id)
@@ -90,6 +110,8 @@ public class CategoryService : ICategoryService
         await _categoryRepository.AddAsync(category);
         await _categoryRepository.SaveChangesAsync();
 
+        await BumpCategoryListVersionAsync();
+
         return CategoryMapper.ToDto(category);
     }
 
@@ -111,6 +133,7 @@ public class CategoryService : ICategoryService
         await _categoryRepository.SaveChangesAsync();
 
         await _cache.RemoveAsync(CacheKeysCategory.Category(id));
+        await BumpCategoryListVersionAsync();
 
         return CategoryMapper.ToDto(category);
     }
@@ -143,5 +166,15 @@ public class CategoryService : ICategoryService
         await _categoryRepository.SaveChangesAsync();
 
         await _cache.RemoveAsync(CacheKeysCategory.Category(id));
+        await BumpCategoryListVersionAsync();
+    }
+    private async Task BumpCategoryListVersionAsync()
+    {
+        var version = await _cache.GetAsync<long?>(CacheKeysCategory.CategoryListVersion()) ?? 0;
+
+        await _cache.SetAsync(
+            CacheKeysCategory.CategoryListVersion(),
+            version + 1,
+            TimeSpan.FromDays(1));
     }
 }

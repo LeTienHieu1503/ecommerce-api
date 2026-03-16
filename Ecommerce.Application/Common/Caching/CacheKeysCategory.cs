@@ -4,15 +4,12 @@ namespace Ecommerce.Application.Common.Caching;
 
 public static class CacheKeysCategory
 {
-    private const string Prefix = "ecommerce";
+    public static string Category(int id)
+        => $"category:{id}";
 
-    public static string Category(int id) => $"{Prefix}:category:{id}";
+    public static string CategoryListVersion()
+        => "category:list:version";
 
-    public static string CategoryList(CategoryQuery query) =>
-        $"{Prefix}:categories:" +
-        $"{query.Page}:" +
-        $"{query.PageSize}:" +
-        $"{query.Search}:" +
-        $"{query.SortBy}:" +
-        $"{query.SortOrder}";
+    public static string CategoryList(CategoryQuery query, long version)
+        => $"category:list:{query.Page}:{query.PageSize}:{query.Search}:{query.SortBy}:{query.SortOrder}:v{version}";
 }
