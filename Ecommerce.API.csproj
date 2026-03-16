@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="FluentAssertions" Version="8.8.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.25" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.24">
       <PrivateAssets>all</PrivateAssets>
@@ -28,8 +29,11 @@
 
   <ItemGroup>
     <Compile Remove="Ecommerce.Domain\**" />
+    <Compile Remove="Ecommerce.UnitTests\**" />
     <Content Remove="Ecommerce.Domain\**" />
+    <Content Remove="Ecommerce.UnitTests\**" />
     <EmbeddedResource Remove="Ecommerce.Domain\**" />
+    <EmbeddedResource Remove="Ecommerce.UnitTests\**" />
     <None Remove="Ecommerce.Domain\**" />
 
     <Compile Remove="Ecommerce.Application\**" />
@@ -41,6 +45,7 @@
     <Content Remove="Ecommerce.Infrastructure\**" />
     <EmbeddedResource Remove="Ecommerce.Infrastructure\**" />
     <None Remove="Ecommerce.Infrastructure\**" />
+    <None Remove="Ecommerce.UnitTests\**" />
   </ItemGroup>
 
   <ItemGroup>

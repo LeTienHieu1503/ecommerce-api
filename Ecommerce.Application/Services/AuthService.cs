@@ -15,16 +15,16 @@ namespace Ecommerce.Application.Services;
 public class AuthService : IAuthService
 {
     private readonly IUserRepository _userRepository;
-    private readonly IConfiguration _configuration;
     private readonly ILogger<AuthService> _logger;
+    private readonly IJwtTokenService _jwtTokenService;
 
     public AuthService(
         IUserRepository userRepository,
-        IConfiguration configuration,
+        IJwtTokenService jwtTokenService,
         ILogger<AuthService> logger)
     {
         _userRepository = userRepository;
-        _configuration = configuration;
+        _jwtTokenService = jwtTokenService;
         _logger = logger;
     }
 
@@ -78,7 +78,7 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Invalid credentials");
         }
 
-        var token = GenerateJwtToken(user);
+        var token = _jwtTokenService.GenerateToken(user);
 
         _logger.LogInformation("User login success {UserId}", user.Id);
 
@@ -89,49 +89,5 @@ public class AuthService : IAuthService
             Email = user.Email,
             Role = user.Role
         };
-    }
-
-    private string GenerateJwtToken(User user)
-    {
-        var jwtSettings = _configuration.GetSection("Jwt");
-
-        var keyString = jwtSettings["Key"]
-            ?? throw new InvalidOperationException("JWT Key not configured");
-
-        var issuer = jwtSettings["Issuer"]
-            ?? throw new InvalidOperationException("JWT Issuer not configured");
-
-        var audience = jwtSettings["Audience"]
-            ?? throw new InvalidOperationException("JWT Audience not configured");
-
-        var expireMinutes = jwtSettings["ExpireMinutes"]
-            ?? throw new InvalidOperationException("JWT ExpireMinutes not configured");
-
-        var key = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(keyString)
-        );
-
-        var credentials = new SigningCredentials(
-            key,
-            SecurityAlgorithms.HmacSha256
-        );
-
-        var claims = new[]
-        {
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Name, user.Email),
-            new Claim(ClaimTypes.Email, user.Email),
-            new Claim(ClaimTypes.Role, user.Role)
-        };
-
-        var token = new JwtSecurityToken(
-            issuer: issuer,
-            audience: audience,
-            claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(int.Parse(expireMinutes)),
-            signingCredentials: credentials
-        );
-
-        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 }
