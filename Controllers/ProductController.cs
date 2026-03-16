@@ -25,6 +25,7 @@ public class ProductController : BaseApiController
     }
 
     [HttpGet]
+    [Authorize(Policy = "product.read")]
     public async Task<IActionResult> GetProducts([FromQuery] ProductQuery query)
     {
         var result = await _service.GetAllAsync(query);
@@ -33,6 +34,7 @@ public class ProductController : BaseApiController
     }
 
     [HttpGet("{id}")]
+    [Authorize(Policy = "product.read")]
     public async Task<IActionResult> GetById(int id)
     {
         var product = await _service.GetByIdAsync(id);
@@ -40,7 +42,7 @@ public class ProductController : BaseApiController
         return Success(product);
     }
 
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = "product.create")]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateProductDto dto)
     {
@@ -49,7 +51,7 @@ public class ProductController : BaseApiController
         return CreatedSuccess(result);
     }
 
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = "product.update")]
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(
         int id,
@@ -60,7 +62,7 @@ public class ProductController : BaseApiController
         return UpdateSuccess(updated);
     }
 
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = "product.delete")]
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {

@@ -1,4 +1,6 @@
 using Ecommerce.API.Authorization.Policies;
+using Ecommerce.API.Authorization.Handlers;
+using Ecommerce.API.Authorization.Requirements;
 using Ecommerce.API.Middleware;
 using Ecommerce.Application.Interfaces;
 using Ecommerce.Application.Services;
@@ -16,6 +18,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json.Serialization;
 using StackExchange.Redis;
+using Microsoft.AspNetCore.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -162,6 +165,18 @@ builder.Services.AddAuthorization(options =>
         AuthorizationPolicies.AdminOnly,
         policy => policy.RequireRole("Admin")
     );
+
+    string[] permissions =
+    {
+        "product.create", "product.read", "product.update", "product.delete",
+        "category.create", "category.read", "category.update", "category.delete"
+    };
+
+    foreach (var permission in permissions)
+    {
+        options.AddPolicy(permission, policy =>
+            policy.Requirements.Add(new PermissionRequirement(permission)));
+    }
 });
 
 // Register application services for Dependency Injection
@@ -169,6 +184,8 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<IProductService, ProductService>();
+builder.Services.AddScoped<IRoleService, RoleService>();
+builder.Services.AddScoped<IPermissionService, PermissionService>();
 
 // Cache: Redis when configured, otherwise in-memory (for local dev without Redis)
 var redisConnection = builder.Configuration.GetConnectionString("Redis");
@@ -193,6 +210,9 @@ builder.Services.AddScoped<ICacheService, RedisCacheService>();
 builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IRoleRepository, RoleRepository>();
+builder.Services.AddScoped<IPermissionRepository, PermissionRepository>();
+builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
 
 builder.Services.AddControllers();
 
@@ -304,6 +324,13 @@ using (var scope = app.Services.CreateScope())
     await db.Database.MigrateAsync();
 
     await AdminSeeder.SeedAdminAsync(db);
+    await PermissionSeeder.SeedPermissionsAsync(db);
 }
 
 app.Run();
+
+
+//dotnet ef migrations add Rbac --project .\Ecommerce.Infrastructure\Ecommerce.Infrastructure.csproj --startup-project .\Ecommerce.API.csproj --context Ecommerce.Infrastructure.Data.ApplicationDbContext
+//dotnet ef database update --project .\Ecommerce.Infrastructure\Ecommerce.Infrastructure.csproj --startup-project .\Ecommerce.API.csproj --context Ecommerce.Infrastructure.Data.ApplicationDbContext
+//dotnet ef database update 20260311061910_AddUserTable --project .\Ecommerce.Infrastructure\Ecommerce.Infrastructure.csproj --startup-project .\Ecommerce.API.csproj --context Ecommerce.Infrastructure.Data.ApplicationDbContext
+//dotnet ef migrations remove --project .\Ecommerce.Infrastructure\Ecommerce.Infrastructure.csproj --startup-project .\Ecommerce.API.csproj --context Ecommerce.Infrastructure.Data.ApplicationDbContext

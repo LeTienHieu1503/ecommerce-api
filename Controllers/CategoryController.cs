@@ -23,6 +23,7 @@ public class CategoryController : BaseApiController
     }
 
     [HttpGet]
+    [Authorize(Policy = "category.read")]
     public async Task<IActionResult> GetCategories([FromQuery] CategoryQuery query)
     {
         var result = await _service.GetAllAsync(query);
@@ -31,6 +32,7 @@ public class CategoryController : BaseApiController
     }
 
     [HttpGet("{id}")]
+    [Authorize(Policy = "category.read")]
     public async Task<IActionResult> GetById(int id)
     {
         var category = await _service.GetByIdAsync(id);
@@ -38,7 +40,7 @@ public class CategoryController : BaseApiController
         return Success(category);
     }
 
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = "category.create")]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateCategoryDto dto)
     {
@@ -47,7 +49,7 @@ public class CategoryController : BaseApiController
         return CreatedSuccess(category);
     }
 
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = "category.update")]
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(
         int id,
@@ -58,7 +60,7 @@ public class CategoryController : BaseApiController
         return UpdateSuccess(category);
     }
 
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = "category.delete")]
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {
