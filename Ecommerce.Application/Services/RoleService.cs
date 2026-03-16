@@ -32,8 +32,12 @@ public class RoleService : IRoleService
     public async Task AssignPermissionsAsync(Guid roleId, IEnumerable<Guid> permissionIds)
     {
         await _roleRepository.AssignPermissionsAsync(roleId, permissionIds);
-        // Invalidate all cached permissions (simpler approach)
-        // A more specific invalidation would require querying affected users.
+        var affectedUserIds = await _roleRepository.GetUserIdsByRoleIdAsync(roleId);
+
+        foreach (var userId in affectedUserIds)
+        {
+            await _cacheService.RemoveAsync($"{PermissionsKeyPrefix}{userId}");
+        }
     }
 
     public async Task AssignRoleToUserAsync(int userId, Guid roleId)

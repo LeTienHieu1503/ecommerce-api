@@ -23,6 +23,6 @@ public class UsersController : BaseApiController
     public async Task<IActionResult> AssignRoleToUser(int userId, [FromBody] AssignRoleRequest request)
     {
         await _roleService.AssignRoleToUserAsync(userId, request.RoleId);
-        return NoContent();
+        return Success("", "Assign role successfully");
     }
 }

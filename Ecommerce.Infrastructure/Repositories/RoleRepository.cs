@@ -49,30 +49,43 @@ public class RoleRepository : IRoleRepository
 
     public async Task AssignPermissionsAsync(Guid roleId, IEnumerable<Guid> permissionIds)
     {
-        var existing = _context.RolePermissions.Where(rp => rp.RoleId == roleId);
-        _context.RolePermissions.RemoveRange(existing);
-
         var distinctIds = permissionIds.Distinct().ToList();
 
-        var newLinks = distinctIds.Select(pid => new RolePermission
+        // If caller passes empty list, treat it as "clear all permissions"
+        if (distinctIds.Count == 0)
         {
-            RoleId = roleId,
-            PermissionId = pid
-        });
+            var existingAll = _context.RolePermissions.Where(rp => rp.RoleId == roleId);
+            _context.RolePermissions.RemoveRange(existingAll);
+            await _context.SaveChangesAsync();
+            return;
+        }
 
-        await _context.RolePermissions.AddRangeAsync(newLinks);
-        await _context.SaveChangesAsync();
+        var existingPermissionIds = await _context.RolePermissions
+            .Where(rp => rp.RoleId == roleId)
+            .Select(rp => rp.PermissionId)
+            .ToListAsync();
+
+        var toAdd = distinctIds
+            .Except(existingPermissionIds)
+            .Select(pid => new RolePermission
+            {
+                RoleId = roleId,
+                PermissionId = pid
+            })
+            .ToList();
+
+        if (toAdd.Count > 0)
+        {
+            await _context.RolePermissions.AddRangeAsync(toAdd);
+            await _context.SaveChangesAsync();
+        }
     }
 
     public async Task AssignRoleToUserAsync(int userId, Guid roleId)
     {
-        var existing = await _context.UserRoles
-            .FirstOrDefaultAsync(ur => ur.UserId == userId && ur.RoleId == roleId);
-
-        if (existing != null)
-        {
-            return;
-        }
+        // Replace any existing roles: keep only the new role
+        var existingRoles = _context.UserRoles.Where(ur => ur.UserId == userId);
+        _context.UserRoles.RemoveRange(existingRoles);
 
         await _context.UserRoles.AddAsync(new UserRole
         {
@@ -87,5 +100,14 @@ public class RoleRepository : IRoleRepository
     {
         return await _context.Roles
             .FirstOrDefaultAsync(r => r.Name == name);
+    }
+
+    public async Task<List<int>> GetUserIdsByRoleIdAsync(Guid roleId)
+    {
+        return await _context.UserRoles
+            .Where(ur => ur.RoleId == roleId)
+            .Select(ur => ur.UserId)
+            .Distinct()
+            .ToListAsync();
     }
 }

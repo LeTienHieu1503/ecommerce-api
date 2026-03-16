@@ -1,4 +1,4 @@
-﻿using Ecommerce.Application.Services;
+using Ecommerce.Application.Services;
 using Ecommerce.Domain.Entities;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
@@ -30,12 +30,25 @@ public class JwtTokenServiceTests
     [Fact]
     public void GenerateToken_ShouldContainCorrectClaims()
     {
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = "Admin"
+        };
+
         var user = new User
         {
             Id = 1,
-            Email = "test@email.com",
-            Role = "Admin"
+            Email = "test@email.com"
         };
+
+        user.UserRoles.Add(new UserRole
+        {
+            UserId = 1,
+            RoleId = role.Id,
+            Role = role,
+            User = user
+        });
 
         var token = _service.GenerateToken(user);
 

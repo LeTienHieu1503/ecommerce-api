@@ -1,4 +1,4 @@
-﻿using Ecommerce.Application.DTOs.Auth;
+using Ecommerce.Application.DTOs.Auth;
 using Ecommerce.Application.Interfaces;
 using Ecommerce.Application.Services;
 using Ecommerce.Domain.Entities;
@@ -13,6 +13,7 @@ public class AuthServiceTests
     private readonly Mock<IUserRepository> _repoMock;
     private readonly Mock<ILogger<AuthService>> _loggerMock;
     private readonly Mock<IJwtTokenService> _jwtMock;
+    private readonly Mock<IRoleRepository> _roleRepoMock;
 
     private readonly AuthService _service;
 
@@ -21,11 +22,13 @@ public class AuthServiceTests
         _repoMock = new Mock<IUserRepository>();
         _loggerMock = new Mock<ILogger<AuthService>>();
         _jwtMock = new Mock<IJwtTokenService>();
+        _roleRepoMock = new Mock<IRoleRepository>();
 
         _service = new AuthService(
             _repoMock.Object,
             _jwtMock.Object,
-            _loggerMock.Object
+            _loggerMock.Object,
+            _roleRepoMock.Object
         );
     }
 
@@ -38,16 +41,27 @@ public class AuthServiceTests
             Password = "123456"
         };
 
+        var defaultRole = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = "User"
+        };
+
         _repoMock
             .Setup(r => r.ExistsByEmailAsync(It.IsAny<string>()))
             .ReturnsAsync(false);
+
+        _roleRepoMock
+            .Setup(r => r.GetByNameAsync(It.IsAny<string>()))
+            .ReturnsAsync(defaultRole);
 
         await _service.RegisterAsync(request);
 
         _repoMock.Verify(r =>
             r.AddAsync(It.Is<User>(u =>
                 u.Email == "test@email.com" &&
-                u.Role == "User"
+                u.UserRoles.Count == 1 &&
+                u.UserRoles.Any(ur => ur.RoleId == defaultRole.Id)
             )), Times.Once);
 
         _repoMock.Verify(r => r.SaveChangesAsync(), Times.Once);
@@ -77,13 +91,26 @@ public class AuthServiceTests
     {
         var passwordHash = BCrypt.Net.BCrypt.HashPassword("123456");
 
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = "User"
+        };
+
         var user = new User
         {
             Id = 1,
             Email = "test@email.com",
-            PasswordHash = passwordHash,
-            Role = "User"
+            PasswordHash = passwordHash
         };
+
+        user.UserRoles.Add(new UserRole
+        {
+            UserId = 1,
+            RoleId = role.Id,
+            Role = role,
+            User = user
+        });
 
         var request = new LoginRequestDto
         {
@@ -104,7 +131,7 @@ public class AuthServiceTests
         result.Token.Should().Be("fake-jwt-token");
         result.Email.Should().Be("test@email.com");
         result.Id.Should().Be(1);
-        result.Role.Should().Be("User");
+        result.Roles.Should().ContainSingle("User");
 
         _jwtMock.Verify(j => j.GenerateToken(It.Is<User>(u => u.Id == 1)), Times.Once);
     }
@@ -116,8 +143,7 @@ public class AuthServiceTests
         {
             Id = 1,
             Email = "test@email.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("123456"),
-            Role = "User"
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("123456")
         };
 
         var request = new LoginRequestDto

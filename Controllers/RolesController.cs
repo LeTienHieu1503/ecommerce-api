@@ -41,6 +41,6 @@ public class RolesController : BaseApiController
         [FromBody] AssignPermissionsRequest request)
     {
         await _roleService.AssignPermissionsAsync(roleId, request.PermissionIds);
-        return NoContent();
+        return Success("", "Assign permissions successfully");
     }
 }

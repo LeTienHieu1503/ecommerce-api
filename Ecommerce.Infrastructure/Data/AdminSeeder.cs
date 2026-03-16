@@ -7,6 +7,20 @@ public static class AdminSeeder
 {
     public static async Task SeedAdminAsync(ApplicationDbContext context)
     {
+        var userRole = await context.Roles
+            .FirstOrDefaultAsync(r => r.Name == "User");
+
+        if (userRole == null)
+        {
+            userRole = new Role
+            {
+                Name = "User"
+            };
+
+            context.Roles.Add(userRole);
+            await context.SaveChangesAsync();
+        }
+
         var adminRole = await context.Roles
             .FirstOrDefaultAsync(r => r.Name == "Admin");
 
