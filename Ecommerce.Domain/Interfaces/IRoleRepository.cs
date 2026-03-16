@@ -17,5 +17,7 @@ namespace Ecommerce.Domain.Interfaces
         Task AssignPermissionsAsync(Guid roleId, IEnumerable<Guid> permissionIds);
 
         Task AssignRoleToUserAsync(int userId, Guid roleId);
+
+        Task<Role?> GetByNameAsync(string name);
     }
 }

@@ -7,20 +7,41 @@ public static class AdminSeeder
 {
     public static async Task SeedAdminAsync(ApplicationDbContext context)
     {
-        var adminExists = await context.Users
-            .AnyAsync(x => x.Role == "Admin");
+        var adminRole = await context.Roles
+            .FirstOrDefaultAsync(r => r.Name == "Admin");
 
-        if (adminExists)
+        if (adminRole == null)
+        {
+            adminRole = new Role
+            {
+                Name = "Admin"
+            };
+
+            context.Roles.Add(adminRole);
+            await context.SaveChangesAsync();
+        }
+
+        var adminUser = await context.Users
+            .Include(u => u.UserRoles)
+            .FirstOrDefaultAsync(u => u.Email == "Admin");
+
+        if (adminUser != null)
             return;
 
-        var admin = new User
+        var user = new User
         {
             Email = "Admin",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("123456"),
-            Role = "Admin"
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("123456")
         };
 
-        context.Users.Add(admin);
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        context.UserRoles.Add(new UserRole
+        {
+            UserId = user.Id,
+            RoleId = adminRole.Id
+        });
 
         await context.SaveChangesAsync();
     }

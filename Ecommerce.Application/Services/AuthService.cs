@@ -15,17 +15,20 @@ namespace Ecommerce.Application.Services;
 public class AuthService : IAuthService
 {
     private readonly IUserRepository _userRepository;
+    private readonly IRoleRepository _roleRepository;
     private readonly ILogger<AuthService> _logger;
     private readonly IJwtTokenService _jwtTokenService;
 
     public AuthService(
         IUserRepository userRepository,
         IJwtTokenService jwtTokenService,
-        ILogger<AuthService> logger)
+        ILogger<AuthService> logger,
+        IRoleRepository roleRepository)
     {
         _userRepository = userRepository;
         _jwtTokenService = jwtTokenService;
         _logger = logger;
+        _roleRepository = roleRepository;
     }
 
     public async Task RegisterAsync(RegisterRequestDto request)
@@ -45,9 +48,20 @@ public class AuthService : IAuthService
         var user = new User
         {
             Email = email,
-            PasswordHash = passwordHash,
-            Role = "User"
+            PasswordHash = passwordHash
         };
+
+        var defaultRole = await _roleRepository.GetByNameAsync("User");
+
+        if (defaultRole == null)
+        {
+            throw new Exception("Default role 'User' not found");
+        }
+
+        user.UserRoles.Add(new UserRole
+        {
+            RoleId = defaultRole.Id
+        });
 
         await _userRepository.AddAsync(user);
         await _userRepository.SaveChangesAsync();
@@ -87,7 +101,9 @@ public class AuthService : IAuthService
             Token = token,
             Id = user.Id,
             Email = user.Email,
-            Role = user.Role
+            Roles = user.UserRoles
+            .Select(ur => ur.Role.Name)
+            .ToList()
         };
     }
 }

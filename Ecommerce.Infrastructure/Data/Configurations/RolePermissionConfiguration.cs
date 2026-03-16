@@ -10,20 +10,20 @@ namespace Ecommerce.API.Configurations
         {
             builder.ToTable("RolePermissions");
 
-            builder.HasKey(rp => new { rp.RoleId, rp.PermissionId });
+            builder.HasKey(x => new { x.RoleId, x.PermissionId });
 
-            builder.HasOne(rp => rp.Role)
+            builder.HasOne(x => x.Role)
                 .WithMany(r => r.RolePermissions)
-                .HasForeignKey(rp => rp.RoleId)
+                .HasForeignKey(x => x.RoleId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            builder.HasOne(rp => rp.Permission)
+            builder.HasOne(x => x.Permission)
                 .WithMany(p => p.RolePermissions)
-                .HasForeignKey(rp => rp.PermissionId)
+                .HasForeignKey(x => x.PermissionId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            builder.HasIndex(rp => rp.RoleId);
-            builder.HasIndex(rp => rp.PermissionId);
+            builder.HasIndex(x => x.RoleId);
+            builder.HasIndex(x => x.PermissionId);
         }
     }
 }

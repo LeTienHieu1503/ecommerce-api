@@ -330,7 +330,7 @@ using (var scope = app.Services.CreateScope())
 app.Run();
 
 
-//dotnet ef migrations add Rbac --project .\Ecommerce.Infrastructure\Ecommerce.Infrastructure.csproj --startup-project .\Ecommerce.API.csproj --context Ecommerce.Infrastructure.Data.ApplicationDbContext
+//dotnet ef migrations add RemoveUserRoleString --project .\Ecommerce.Infrastructure\Ecommerce.Infrastructure.csproj --startup-project .\Ecommerce.API.csproj --context Ecommerce.Infrastructure.Data.ApplicationDbContext
 //dotnet ef database update --project .\Ecommerce.Infrastructure\Ecommerce.Infrastructure.csproj --startup-project .\Ecommerce.API.csproj --context Ecommerce.Infrastructure.Data.ApplicationDbContext
 //dotnet ef database update 20260311061910_AddUserTable --project .\Ecommerce.Infrastructure\Ecommerce.Infrastructure.csproj --startup-project .\Ecommerce.API.csproj --context Ecommerce.Infrastructure.Data.ApplicationDbContext
 //dotnet ef migrations remove --project .\Ecommerce.Infrastructure\Ecommerce.Infrastructure.csproj --startup-project .\Ecommerce.API.csproj --context Ecommerce.Infrastructure.Data.ApplicationDbContext

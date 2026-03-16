@@ -34,12 +34,14 @@ namespace Ecommerce.Application.Services
                 SecurityAlgorithms.HmacSha256
             );
 
-            var claims = new[]
+            var claims = new List<Claim>
             {
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Email, user.Email),
-            new Claim(ClaimTypes.Role, user.Role)
-        };
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Email, user.Email)
+            };
+
+            claims.AddRange(user.UserRoles
+                .Select(r => new Claim(ClaimTypes.Role, r.Role.Name)));
 
             var token = new JwtSecurityToken(
                 issuer: jwtSettings["Issuer"],

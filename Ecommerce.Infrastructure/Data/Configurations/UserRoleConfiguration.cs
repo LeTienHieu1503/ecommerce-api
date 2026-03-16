@@ -10,20 +10,20 @@ namespace Ecommerce.API.Configurations
         {
             builder.ToTable("UserRoles");
 
-            builder.HasKey(ur => new { ur.UserId, ur.RoleId });
+            builder.HasKey(x => new { x.UserId, x.RoleId });
 
-            builder.HasOne(ur => ur.User)
-                .WithMany()
-                .HasForeignKey(ur => ur.UserId)
+            builder.HasOne(x => x.User)
+                .WithMany(u => u.UserRoles)
+                .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            builder.HasOne(ur => ur.Role)
+            builder.HasOne(x => x.Role)
                 .WithMany(r => r.UserRoles)
-                .HasForeignKey(ur => ur.RoleId)
+                .HasForeignKey(x => x.RoleId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            builder.HasIndex(ur => ur.UserId);
-            builder.HasIndex(ur => ur.RoleId);
+            builder.HasIndex(x => x.UserId);
+            builder.HasIndex(x => x.RoleId);
         }
     }
 }
