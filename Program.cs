@@ -23,7 +23,7 @@ using Microsoft.AspNetCore.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-//LogFile
+//Log
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
 
@@ -32,11 +32,6 @@ Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning)
 
     .WriteTo.Console()
-    .WriteTo.File(
-        "logs/log-.txt",
-        rollingInterval: RollingInterval.Day,
-        retainedFileCountLimit: 30
-    )
     .CreateLogger();
 
 builder.Host.UseSerilog();
@@ -44,8 +39,14 @@ builder.Host.UseSerilog();
 //Redis
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 {
-    var configuration = builder.Configuration.GetConnectionString("Redis");
-    return ConnectionMultiplexer.Connect(configuration);
+    var connectionString = builder.Configuration.GetConnectionString("Redis");
+    if (string.IsNullOrEmpty(connectionString))
+    {
+        throw new InvalidOperationException("Redis connection string is missing.");
+    }
+    var options = ConfigurationOptions.Parse(connectionString);
+    options.AbortOnConnectFail = false;
+    return ConnectionMultiplexer.Connect(options);
 });
 
 // Register DbContext and configure SQL Server connection
@@ -286,7 +287,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 
 //Logging
 app.Use(async (context, next) =>
@@ -326,11 +327,23 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider
         .GetRequiredService<ApplicationDbContext>();
 
-    await db.Database.MigrateAsync();
+    var retries = 5;
+    while (retries > 0)
+    {
+        try
+        {
+            await db.Database.MigrateAsync();
+            break;
+        }
+        catch
+        {
+            retries--;
+            await Task.Delay(2000);
+        }
+    }
 
     await AdminSeeder.SeedAdminAsync(db);
     await PermissionSeeder.SeedPermissionsAsync(db);
 }
 
 app.Run();
-
