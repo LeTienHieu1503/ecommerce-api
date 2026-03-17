@@ -6,8 +6,16 @@ namespace Ecommerce.Domain.Interfaces
     {
         Task<List<Permission>> GetAllAsync();
 
-        Task<List<Permission>> GetByRoleIdAsync(Guid roleId);
+        Task<List<Permission>> GetByRoleIdAsync(int roleId);
 
         Task<List<string>> GetPermissionsByUserIdAsync(int userId);
+
+        Task<Permission?> GetByIdAsync(int id);
+
+        Task AddAsync(Permission permission);
+
+        Task UpdateAsync(Permission permission);
+
+        Task DeleteAsync(Permission permission);
     }
 }

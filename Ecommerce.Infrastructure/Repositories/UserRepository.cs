@@ -36,4 +36,13 @@ public class UserRepository : IUserRepository
     {
         await _context.SaveChangesAsync();
     }
+
+    public async Task<IReadOnlyList<User>> GetAllWithRolesAsync()
+    {
+        return await _context.Users
+            .Include(u => u.UserRoles)
+            .ThenInclude(ur => ur.Role)
+            .OrderBy(u => u.Email)
+            .ToListAsync();
+    }
 }

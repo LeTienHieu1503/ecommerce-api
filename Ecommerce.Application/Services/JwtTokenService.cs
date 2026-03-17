@@ -1,4 +1,4 @@
-﻿using Ecommerce.Application.Interfaces;
+using Ecommerce.Application.Interfaces;
 using Ecommerce.Domain.Entities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
@@ -41,7 +41,7 @@ namespace Ecommerce.Application.Services
             };
 
             claims.AddRange(user.UserRoles
-                .Select(r => new Claim(ClaimTypes.Role, r.Role.Name)));
+                .Select(r => new Claim("role", r.Role.Name)));
 
             var token = new JwtSecurityToken(
                 issuer: jwtSettings["Issuer"],

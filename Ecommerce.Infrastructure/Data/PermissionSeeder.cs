@@ -25,7 +25,6 @@ public static class PermissionSeeder
 
                 permissions.Add(new Permission
                 {
-                    Id = Guid.NewGuid(),
                     Name = name,
                     Entity = entity,
                     Action = action

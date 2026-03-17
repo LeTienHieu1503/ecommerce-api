@@ -1,4 +1,4 @@
-﻿using Ecommerce.Application.DTOs.Product;
+using Ecommerce.Application.DTOs.Product;
 using Ecommerce.Application.Services;
 using Ecommerce.Domain.Entities;
 using Ecommerce.Domain.Exceptions;
@@ -35,7 +35,7 @@ public class ProductServiceTests
     [Fact]
     public async Task GetByIdAsync_ShouldReturnCachedProduct_WhenCacheHit()
     {
-        var productId = 1;
+        var productId = new System.Random().Next(1, 10000);
 
         var cachedProduct = new ProductResponseDto
         {
@@ -57,15 +57,16 @@ public class ProductServiceTests
     [Fact]
     public async Task GetByIdAsync_ShouldReturnProduct_WhenCacheMiss()
     {
-        var productId = 1;
+        var productId = new System.Random().Next(1, 10000);
+        var categoryId = new System.Random().Next(1, 10000);
 
         var product = new Product
         {
             Id = productId,
             Name = "Laptop",
             Price = 1000,
-            CategoryId = 1,
-            Category = new Category { Id = 1, Name = "Electronics" }
+            CategoryId = categoryId,
+            Category = new Category { Id = categoryId, Name = "Electronics" }
         };
 
         _cacheMock
@@ -91,6 +92,8 @@ public class ProductServiceTests
     [Fact]
     public async Task GetByIdAsync_ShouldThrowNotFound_WhenProductDoesNotExist()
     {
+        var productId = new System.Random().Next(1, 10000);
+
         _cacheMock
             .Setup(c => c.GetAsync<ProductResponseDto>(It.IsAny<string>()))
             .ReturnsAsync((ProductResponseDto)null);
@@ -99,7 +102,7 @@ public class ProductServiceTests
             .Setup(r => r.GetByIdAsync(It.IsAny<int>()))
             .ReturnsAsync((Product)null);
 
-        var act = async () => await _service.GetByIdAsync(1);
+        var act = async () => await _service.GetByIdAsync(productId);
 
         await act.Should().ThrowAsync<NotFoundException>();
     }
@@ -107,11 +110,14 @@ public class ProductServiceTests
     [Fact]
     public async Task CreateAsync_ShouldCreateProduct_WhenCategoryExists()
     {
+        var categoryId = new System.Random().Next(1, 10000);
+        var productId = new System.Random().Next(1, 10000);
+
         var dto = new CreateProductDto
         {
             Name = "Laptop",
             Price = 1000,
-            CategoryId = 1
+            CategoryId = categoryId
         };
 
         _repositoryMock
@@ -122,11 +128,11 @@ public class ProductServiceTests
             .Setup(r => r.GetByIdAsync(It.IsAny<int>()))
             .ReturnsAsync(new Product
             {
-                Id = 1,
+                Id = productId,
                 Name = dto.Name,
                 Price = dto.Price,
                 CategoryId = dto.CategoryId,
-                Category = new Category { Id = 1, Name = "Electronics" }
+                Category = new Category { Id = categoryId, Name = "Electronics" }
             });
 
         var result = await _service.CreateAsync(dto);
@@ -140,11 +146,13 @@ public class ProductServiceTests
     [Fact]
     public async Task CreateAsync_ShouldThrowNotFound_WhenCategoryNotExists()
     {
+        var categoryId = new System.Random().Next(1, 10000);
+
         var dto = new CreateProductDto
         {
             Name = "Laptop",
             Price = 1000,
-            CategoryId = 1
+            CategoryId = categoryId
         };
 
         _repositoryMock
@@ -159,23 +167,27 @@ public class ProductServiceTests
     [Fact]
     public async Task UpdateAsync_ShouldUpdateProduct()
     {
+        var productId = new System.Random().Next(1, 10000);
+        var oldCategoryId = new System.Random().Next(1, 10000);
+        var newCategoryId = new System.Random().Next(1, 10000);
+
         var product = new Product
         {
-            Id = 1,
+            Id = productId,
             Name = "Old",
             Price = 500,
-            CategoryId = 1
+            CategoryId = oldCategoryId
         };
 
         var dto = new UpdateProductDto
         {
             Name = "New",
             Price = 1000,
-            CategoryId = 1
+            CategoryId = newCategoryId
         };
 
         _repositoryMock
-            .Setup(r => r.GetByIdAsync(1))
+            .Setup(r => r.GetByIdAsync(productId))
             .ReturnsAsync(product);
 
         _repositoryMock
@@ -183,17 +195,17 @@ public class ProductServiceTests
             .ReturnsAsync(true);
 
         _repositoryMock
-            .Setup(r => r.GetByIdAsync(1))
+            .Setup(r => r.GetByIdAsync(productId))
             .ReturnsAsync(new Product
             {
-                Id = 1,
+                Id = productId,
                 Name = dto.Name,
                 Price = dto.Price,
                 CategoryId = dto.CategoryId,
-                Category = new Category { Id = 1, Name = "Electronics" }
+                Category = new Category { Id = newCategoryId, Name = "Electronics" }
             });
 
-        var result = await _service.UpdateAsync(1, dto);
+        var result = await _service.UpdateAsync(productId, dto);
 
         result.Name.Should().Be("New");
 
@@ -203,17 +215,19 @@ public class ProductServiceTests
     [Fact]
     public async Task DeleteAsync_ShouldSoftDeleteProduct()
     {
+        var productId = new System.Random().Next(1, 10000);
+
         var product = new Product
         {
-            Id = 1,
+            Id = productId,
             Name = "Laptop"
         };
 
         _repositoryMock
-            .Setup(r => r.GetByIdAsync(1))
+            .Setup(r => r.GetByIdAsync(productId))
             .ReturnsAsync(product);
 
-        await _service.DeleteAsync(1);
+        await _service.DeleteAsync(productId);
 
         product.IsDeleted.Should().BeTrue();
 
@@ -223,11 +237,13 @@ public class ProductServiceTests
     [Fact]
     public async Task DeleteAsync_ShouldThrowNotFound_WhenProductNotExists()
     {
+        var productId = new System.Random().Next(1, 10000);
+
         _repositoryMock
             .Setup(r => r.GetByIdAsync(It.IsAny<int>()))
             .ReturnsAsync((Product)null);
 
-        var act = async () => await _service.DeleteAsync(1);
+        var act = async () => await _service.DeleteAsync(productId);
 
         await act.Should().ThrowAsync<NotFoundException>();
     }
@@ -241,12 +257,14 @@ public class ProductServiceTests
             PageSize = 10
         };
 
+        var productId = new System.Random().Next(1, 10000);
+
         var cached = new PagedResult<ProductResponseDto>(
             new List<ProductResponseDto>
             {
             new ProductResponseDto
             {
-                Id = 1,
+                Id = productId,
                 Name = "Laptop"
             }
             },
@@ -279,15 +297,18 @@ public class ProductServiceTests
             PageSize = 10
         };
 
+        var productId = new System.Random().Next(1, 10000);
+        var categoryId = new System.Random().Next(1, 10000);
+
         var products = new List<Product>
     {
         new Product
         {
-            Id = 1,
+            Id = productId,
             Name = "Laptop",
             Price = 1000,
-            CategoryId = 1,
-            Category = new Category { Id = 1, Name = "Electronics" }
+            CategoryId = categoryId,
+            Category = new Category { Id = categoryId, Name = "Electronics" }
         }
     }.AsQueryable();
 
@@ -325,23 +346,27 @@ public class ProductServiceTests
             PageSize = 10
         };
 
+        var categoryId = new System.Random().Next(1, 10000);
+        var laptopId = new System.Random().Next(1, 10000);
+        var phoneId = new System.Random().Next(1, 10000);
+
         var products = new List<Product>
     {
         new Product
         {
-            Id = 1,
+            Id = laptopId,
             Name = "Laptop",
             Price = 1000,
-            CategoryId = 1,
-            Category = new Category { Id = 1, Name = "Electronics" }
+            CategoryId = categoryId,
+            Category = new Category { Id = categoryId, Name = "Electronics" }
         },
         new Product
         {
-            Id = 2,
+            Id = phoneId,
             Name = "Phone",
             Price = 500,
-            CategoryId = 1,
-            Category = new Category { Id = 1, Name = "Electronics" }
+            CategoryId = categoryId,
+            Category = new Category { Id = categoryId, Name = "Electronics" }
         }
     }.AsQueryable();
 
@@ -365,9 +390,14 @@ public class ProductServiceTests
     [Fact]
     public async Task GetAllAsync_ShouldFilterByCategory()
     {
+        var electronicsCategoryId = new System.Random().Next(1, 10000);
+        var fashionCategoryId = new System.Random().Next(1, 10000);
+        var laptopId = new System.Random().Next(1, 10000);
+        var shoesId = new System.Random().Next(1, 10000);
+
         var query = new ProductQuery
         {
-            CategoryId = 1,
+            CategoryId = electronicsCategoryId,
             Page = 1,
             PageSize = 10
         };
@@ -376,19 +406,19 @@ public class ProductServiceTests
     {
         new Product
         {
-            Id = 1,
+            Id = laptopId,
             Name = "Laptop",
             Price = 1000,
-            CategoryId = 1,
-            Category = new Category { Id = 1, Name = "Electronics" }
+            CategoryId = electronicsCategoryId,
+            Category = new Category { Id = electronicsCategoryId, Name = "Electronics" }
         },
         new Product
         {
-            Id = 2,
+            Id = shoesId,
             Name = "Shoes",
             Price = 100,
-            CategoryId = 2,
-            Category = new Category { Id = 2, Name = "Fashion" }
+            CategoryId = fashionCategoryId,
+            Category = new Category { Id = fashionCategoryId, Name = "Fashion" }
         }
     }.AsQueryable();
 

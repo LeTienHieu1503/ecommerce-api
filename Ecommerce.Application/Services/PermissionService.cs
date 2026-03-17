@@ -45,4 +45,40 @@ public class PermissionService : IPermissionService
             .Select(p => new PermissionDto(p.Id, p.Name, p.Entity, p.Action))
             .ToList();
     }
+
+    public async Task<int> CreatePermissionAsync(string entity, string action)
+    {
+        var name = $"{entity}.{action}";
+        var permission = new Ecommerce.Domain.Entities.Permission
+        {
+            Entity = entity,
+            Action = action,
+            Name = name
+        };
+
+        await _permissionRepository.AddAsync(permission);
+        return permission.Id;
+    }
+
+    public async Task UpdatePermissionAsync(int id, string entity, string action)
+    {
+        var permission = await _permissionRepository.GetByIdAsync(id);
+        if (permission == null)
+            throw new Exception("Permission not found");
+
+        permission.Entity = entity;
+        permission.Action = action;
+        permission.Name = $"{entity}.{action}";
+
+        await _permissionRepository.UpdateAsync(permission);
+    }
+
+    public async Task DeletePermissionAsync(int id)
+    {
+        var permission = await _permissionRepository.GetByIdAsync(id);
+        if (permission == null)
+            throw new Exception("Permission not found");
+
+        await _permissionRepository.DeleteAsync(permission);
+    }
 }

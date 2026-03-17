@@ -33,7 +33,7 @@ public class ProductController : BaseApiController
         return Success(result, "Get successfully");
     }
 
-    [HttpGet("{id}")]
+    [HttpGet("{id:int}")]
     [Authorize(Policy = "product.read")]
     public async Task<IActionResult> GetById(int id)
     {
@@ -52,7 +52,7 @@ public class ProductController : BaseApiController
     }
 
     [Authorize(Policy = "product.update")]
-    [HttpPut("{id}")]
+    [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] UpdateProductDto dto)
@@ -63,7 +63,7 @@ public class ProductController : BaseApiController
     }
 
     [Authorize(Policy = "product.delete")]
-    [HttpDelete("{id}")]
+    [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id)
     {
         await _service.DeleteAsync(id);

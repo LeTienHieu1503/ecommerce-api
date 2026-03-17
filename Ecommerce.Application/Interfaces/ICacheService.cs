@@ -1,4 +1,4 @@
-﻿public interface ICacheService
+public interface ICacheService
 {
     Task<T?> GetAsync<T>(string key);
 

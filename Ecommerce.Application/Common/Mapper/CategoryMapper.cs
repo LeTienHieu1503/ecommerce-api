@@ -1,4 +1,4 @@
-﻿using Ecommerce.Domain.Entities;
+using Ecommerce.Domain.Entities;
 using Ecommerce.Application.DTOs.Category;
 
 namespace Ecommerce.Application.Common.Mappers;

@@ -1,4 +1,4 @@
-﻿using Ecommerce.Application.DTOs.Category;
+using Ecommerce.Application.DTOs.Category;
 using Ecommerce.Application.Services;
 using Ecommerce.Domain.Entities;
 using Ecommerce.Domain.Exceptions;
@@ -31,6 +31,7 @@ public class CategoryServiceTests
     public async Task GetAllAsync_ShouldQueryDatabase_WhenCacheMiss()
     {
         var query = new CategoryQuery { Page = 1, PageSize = 10 };
+        var categoryId = new System.Random().Next(1, 10000);
 
         _cacheMock.Setup(c => c.GetAsync<long?>(It.IsAny<string>()))
             .ReturnsAsync((long?)0);
@@ -41,7 +42,7 @@ public class CategoryServiceTests
         _repositoryMock.Setup(r => r.GetQueryable())
             .Returns(new List<Category>
             {
-                new Category{ Id=1, Name="Phone"}
+                new Category{ Id = categoryId, Name = "Phone" }
             }.AsQueryable());
 
         var result = await _service.GetAllAsync(query);
@@ -79,12 +80,13 @@ public class CategoryServiceTests
     [Fact]
     public async Task GetByIdAsync_ShouldReturnCache_WhenCacheExists()
     {
-        var dto = new CategoryResponseDto { Id = 1, Name = "Phone" };
+        var categoryId = new System.Random().Next(1, 10000);
+        var dto = new CategoryResponseDto { Id = categoryId, Name = "Phone" };
 
         _cacheMock.Setup(c => c.GetAsync<CategoryResponseDto>(It.IsAny<string>()))
             .ReturnsAsync(dto);
 
-        var result = await _service.GetByIdAsync(1);
+        var result = await _service.GetByIdAsync(categoryId);
 
         result.Should().BeEquivalentTo(dto);
 
@@ -94,13 +96,15 @@ public class CategoryServiceTests
     [Fact]
     public async Task GetByIdAsync_ShouldQueryDatabase_WhenCacheMiss()
     {
+        var categoryId = new System.Random().Next(1, 10000);
+
         _cacheMock.Setup(c => c.GetAsync<CategoryResponseDto>(It.IsAny<string>()))
             .ReturnsAsync((CategoryResponseDto?)null);
 
-        _repositoryMock.Setup(r => r.GetByIdAsync(1))
-            .ReturnsAsync(new Category { Id = 1, Name = "Phone" });
+        _repositoryMock.Setup(r => r.GetByIdAsync(categoryId))
+            .ReturnsAsync(new Category { Id = categoryId, Name = "Phone" });
 
-        var result = await _service.GetByIdAsync(1);
+        var result = await _service.GetByIdAsync(categoryId);
 
         result.Name.Should().Be("Phone");
     }
@@ -108,6 +112,8 @@ public class CategoryServiceTests
     [Fact]
     public async Task GetByIdAsync_ShouldThrowNotFound_WhenCategoryNotExist()
     {
+        var categoryId = new System.Random().Next(1, 10000);
+
         _cacheMock.Setup(c => c.GetAsync<CategoryResponseDto>(It.IsAny<string>()))
             .ReturnsAsync((CategoryResponseDto?)null);
 
@@ -115,7 +121,7 @@ public class CategoryServiceTests
             .ReturnsAsync((Category?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(() =>
-            _service.GetByIdAsync(1));
+            _service.GetByIdAsync(categoryId));
     }
 
     [Fact]
@@ -136,12 +142,13 @@ public class CategoryServiceTests
     [Fact]
     public async Task UpdateAsync_ShouldUpdateCategory()
     {
-        var category = new Category { Id = 1, Name = "Old" };
+        var categoryId = new System.Random().Next(1, 10000);
+        var category = new Category { Id = categoryId, Name = "Old" };
 
-        _repositoryMock.Setup(r => r.GetByIdAsync(1))
+        _repositoryMock.Setup(r => r.GetByIdAsync(categoryId))
             .ReturnsAsync(category);
 
-        var result = await _service.UpdateAsync(1,
+        var result = await _service.UpdateAsync(categoryId,
             new UpdateCategoryDto { Name = "New" });
 
         result.Name.Should().Be("New");
@@ -150,25 +157,28 @@ public class CategoryServiceTests
     [Fact]
     public async Task UpdateAsync_ShouldThrowNotFound_WhenCategoryNotExist()
     {
+        var categoryId = new System.Random().Next(1, 10000);
+
         _repositoryMock.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
             .ReturnsAsync((Category?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(() =>
-            _service.UpdateAsync(1, new UpdateCategoryDto { Name = "Test" }));
+            _service.UpdateAsync(categoryId, new UpdateCategoryDto { Name = "Test" }));
     }
 
     [Fact]
     public async Task DeleteAsync_ShouldSoftDeleteCategory()
     {
-        var category = new Category { Id = 1 };
+        var categoryId = new System.Random().Next(1, 10000);
+        var category = new Category { Id = categoryId };
 
-        _repositoryMock.Setup(r => r.GetByIdAsync(1))
+        _repositoryMock.Setup(r => r.GetByIdAsync(categoryId))
             .ReturnsAsync(category);
 
-        _repositoryMock.Setup(r => r.HasProductsAsync(1))
+        _repositoryMock.Setup(r => r.HasProductsAsync(categoryId))
             .ReturnsAsync(false);
 
-        await _service.DeleteAsync(1);
+        await _service.DeleteAsync(categoryId);
 
         category.IsDeleted.Should().BeTrue();
     }
@@ -176,15 +186,16 @@ public class CategoryServiceTests
     [Fact]
     public async Task DeleteAsync_ShouldThrowBusinessException_WhenHasProducts()
     {
-        var category = new Category { Id = 1 };
+        var categoryId = new System.Random().Next(1, 10000);
+        var category = new Category { Id = categoryId };
 
-        _repositoryMock.Setup(r => r.GetByIdAsync(1))
+        _repositoryMock.Setup(r => r.GetByIdAsync(categoryId))
             .ReturnsAsync(category);
 
-        _repositoryMock.Setup(r => r.HasProductsAsync(1))
+        _repositoryMock.Setup(r => r.HasProductsAsync(categoryId))
             .ReturnsAsync(true);
 
         await Assert.ThrowsAsync<BusinessException>(() =>
-            _service.DeleteAsync(1));
+            _service.DeleteAsync(categoryId));
     }
 }

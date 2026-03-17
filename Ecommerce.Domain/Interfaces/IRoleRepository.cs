@@ -4,7 +4,7 @@ namespace Ecommerce.Domain.Interfaces
 {
     public interface IRoleRepository
     {
-        Task<Role?> GetByIdAsync(Guid id);
+        Task<Role?> GetByIdAsync(int id);
 
         Task<List<Role>> GetAllAsync();
 
@@ -14,12 +14,12 @@ namespace Ecommerce.Domain.Interfaces
 
         Task DeleteAsync(Role role);
 
-        Task AssignPermissionsAsync(Guid roleId, IEnumerable<Guid> permissionIds);
+        Task AssignPermissionsAsync(int roleId, IEnumerable<int> permissionIds);
 
-        Task AssignRoleToUserAsync(int userId, Guid roleId);
+        Task AssignRoleToUserAsync(int userId, int roleId);
 
         Task<Role?> GetByNameAsync(string name);
 
-        Task<List<int>> GetUserIdsByRoleIdAsync(Guid roleId);
+        Task<List<int>> GetUserIdsByRoleIdAsync(int roleId);
     }
 }

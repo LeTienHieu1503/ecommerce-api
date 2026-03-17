@@ -1,4 +1,4 @@
-﻿namespace Ecommerce.Domain.Common.Pagination;
+namespace Ecommerce.Domain.Common.Pagination;
 
 public static class PaginationExtension
 {

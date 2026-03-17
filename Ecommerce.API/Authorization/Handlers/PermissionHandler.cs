@@ -31,6 +31,13 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
             return;
         }
 
+        // Admin role always has all permissions
+        if (context.User.IsInRole("Admin"))
+        {
+            context.Succeed(requirement);
+            return;
+        }
+
         var permissions = await _permissionService.GetUserPermissionsAsync(userId);
 
         if (permissions.Contains(requirement.Permission))

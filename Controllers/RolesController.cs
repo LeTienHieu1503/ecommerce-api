@@ -18,7 +18,7 @@ public class RolesController : BaseApiController
 
     public record CreateRoleRequest(string Name);
 
-    public record AssignPermissionsRequest(IEnumerable<Guid> PermissionIds);
+    public record AssignPermissionsRequest(IEnumerable<int> PermissionIds);
 
     [HttpPost]
     public async Task<IActionResult> CreateRole([FromBody] CreateRoleRequest request)
@@ -35,12 +35,26 @@ public class RolesController : BaseApiController
         return Success(response);
     }
 
-    [HttpPost("{roleId:guid}/permissions")]
+    [HttpPost("{roleId:int}/permissions")]
     public async Task<IActionResult> AssignPermissions(
-        Guid roleId,
+        int roleId,
         [FromBody] AssignPermissionsRequest request)
     {
         await _roleService.AssignPermissionsAsync(roleId, request.PermissionIds);
         return Success("", "Assign permissions successfully");
+    }
+
+    [HttpPut("{id:int}")]
+    public async Task<IActionResult> UpdateRole(int id, [FromBody] CreateRoleRequest request)
+    {
+        await _roleService.UpdateRoleAsync(id, request.Name);
+        return Success("", "Update role successfully");
+    }
+
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> DeleteRole(int id)
+    {
+        await _roleService.DeleteRoleAsync(id);
+        return Success("", "Delete role successfully");
     }
 }

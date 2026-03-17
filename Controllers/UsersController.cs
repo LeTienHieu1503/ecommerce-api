@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Ecommerce.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -17,7 +16,14 @@ public class UsersController : BaseApiController
         _roleService = roleService;
     }
 
-    public record AssignRoleRequest(Guid RoleId);
+    public record AssignRoleRequest(int RoleId);
+
+    [HttpGet]
+    public async Task<IActionResult> GetAllUser()
+    {
+        var users = await _roleService.GetAllUsersWithRolesAsync();
+        return Success(users, "Get all users successfully");
+    }
 
     [HttpPost("{userId:int}/roles")]
     public async Task<IActionResult> AssignRoleToUser(int userId, [FromBody] AssignRoleRequest request)

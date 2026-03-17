@@ -2,9 +2,9 @@ namespace Ecommerce.Domain.Entities
 {
     public class RolePermission
     {
-        public Guid RoleId { get; set; }
+        public int RoleId { get; set; }
 
-        public Guid PermissionId { get; set; }
+        public int PermissionId { get; set; }
 
         public Role Role { get; set; } = null!;
 

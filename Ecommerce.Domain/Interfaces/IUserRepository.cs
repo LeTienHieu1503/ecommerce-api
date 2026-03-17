@@ -11,4 +11,6 @@ public interface IUserRepository
     Task AddAsync(User user);
 
     Task SaveChangesAsync();
+
+    Task<IReadOnlyList<User>> GetAllWithRolesAsync();
 }

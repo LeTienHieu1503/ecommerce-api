@@ -110,7 +110,7 @@ public class ProductService : IProductService
 
         if (query.CategoryId.HasValue)
         {
-            products = products.Where(p => p.CategoryId == query.CategoryId);
+            products = products.Where(p => p.CategoryId == query.CategoryId.Value);
         }
 
         if (query.MinPrice.HasValue)

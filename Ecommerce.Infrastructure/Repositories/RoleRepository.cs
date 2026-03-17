@@ -14,7 +14,7 @@ public class RoleRepository : IRoleRepository
         _context = context;
     }
 
-    public async Task<Role?> GetByIdAsync(Guid id)
+    public async Task<Role?> GetByIdAsync(int id)
     {
         return await _context.Roles
             .Include(r => r.RolePermissions)
@@ -47,7 +47,7 @@ public class RoleRepository : IRoleRepository
         await _context.SaveChangesAsync();
     }
 
-    public async Task AssignPermissionsAsync(Guid roleId, IEnumerable<Guid> permissionIds)
+    public async Task AssignPermissionsAsync(int roleId, IEnumerable<int> permissionIds)
     {
         var distinctIds = permissionIds.Distinct().ToList();
 
@@ -81,7 +81,7 @@ public class RoleRepository : IRoleRepository
         }
     }
 
-    public async Task AssignRoleToUserAsync(int userId, Guid roleId)
+    public async Task AssignRoleToUserAsync(int userId, int roleId)
     {
         // Replace any existing roles: keep only the new role
         var existingRoles = _context.UserRoles.Where(ur => ur.UserId == userId);
@@ -102,7 +102,7 @@ public class RoleRepository : IRoleRepository
             .FirstOrDefaultAsync(r => r.Name == name);
     }
 
-    public async Task<List<int>> GetUserIdsByRoleIdAsync(Guid roleId)
+    public async Task<List<int>> GetUserIdsByRoleIdAsync(int roleId)
     {
         return await _context.UserRoles
             .Where(ur => ur.RoleId == roleId)

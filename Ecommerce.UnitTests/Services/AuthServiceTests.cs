@@ -43,7 +43,7 @@ public class AuthServiceTests
 
         var defaultRole = new Role
         {
-            Id = Guid.NewGuid(),
+            Id = new System.Random().Next(1, 10000),
             Name = "User"
         };
 
@@ -90,23 +90,24 @@ public class AuthServiceTests
     public async Task LoginAsync_ShouldReturnToken_WhenCredentialsValid()
     {
         var passwordHash = BCrypt.Net.BCrypt.HashPassword("123456");
+        var userId = new System.Random().Next(1, 10000);
 
         var role = new Role
         {
-            Id = Guid.NewGuid(),
+            Id = new System.Random().Next(1, 10000),
             Name = "User"
         };
 
         var user = new User
         {
-            Id = 1,
+            Id = userId,
             Email = "test@email.com",
             PasswordHash = passwordHash
         };
 
         user.UserRoles.Add(new UserRole
         {
-            UserId = 1,
+            UserId = userId,
             RoleId = role.Id,
             Role = role,
             User = user
@@ -130,18 +131,19 @@ public class AuthServiceTests
 
         result.Token.Should().Be("fake-jwt-token");
         result.Email.Should().Be("test@email.com");
-        result.Id.Should().Be(1);
+        result.Id.Should().Be(userId);
         result.Roles.Should().ContainSingle("User");
 
-        _jwtMock.Verify(j => j.GenerateToken(It.Is<User>(u => u.Id == 1)), Times.Once);
+        _jwtMock.Verify(j => j.GenerateToken(It.Is<User>(u => u.Id == userId)), Times.Once);
     }
 
     [Fact]
     public async Task LoginAsync_ShouldThrowException_WhenPasswordWrong()
     {
+        var userId = new System.Random().Next(1, 10000);
         var user = new User
         {
-            Id = 1,
+            Id = userId,
             Email = "test@email.com",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("123456")
         };

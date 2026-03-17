@@ -21,7 +21,7 @@ public class PermissionRepository : IPermissionRepository
             .ToListAsync();
     }
 
-    public async Task<List<Permission>> GetByRoleIdAsync(Guid roleId)
+    public async Task<List<Permission>> GetByRoleIdAsync(int roleId)
     {
         return await _context.RolePermissions
             .Where(rp => rp.RoleId == roleId)
@@ -38,5 +38,28 @@ public class PermissionRepository : IPermissionRepository
             .Select(rp => rp.Permission.Name)
             .Distinct()
             .ToListAsync();
+    }
+
+    public async Task<Permission?> GetByIdAsync(int id)
+    {
+        return await _context.Permissions.FindAsync(id);
+    }
+
+    public async Task AddAsync(Permission permission)
+    {
+        await _context.Permissions.AddAsync(permission);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task UpdateAsync(Permission permission)
+    {
+        _context.Permissions.Update(permission);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task DeleteAsync(Permission permission)
+    {
+        _context.Permissions.Remove(permission);
+        await _context.SaveChangesAsync();
     }
 }

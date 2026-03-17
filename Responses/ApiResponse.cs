@@ -1,4 +1,4 @@
-﻿namespace Ecommerce.API.Responses;
+namespace Ecommerce.API.Responses;
 
 public class ApiResponse<T>
 {

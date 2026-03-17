@@ -14,7 +14,7 @@ public class IsOwnerHandler
     {
         var userId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-        if (userId != null && userId == resourceUserId.ToString())
+        if (int.TryParse(userId, out var userGuid) && userGuid == resourceUserId)
         {
             context.Succeed(requirement);
         }

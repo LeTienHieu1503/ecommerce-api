@@ -15,6 +15,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using System.Diagnostics;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
 using StackExchange.Redis;
@@ -75,7 +76,11 @@ builder.Services
 
         IssuerSigningKey = new SymmetricSecurityKey(
             Encoding.UTF8.GetBytes(jwt["Key"]!)
-        )
+        ),
+
+        // DefaultInboundClaimTypeMap maps "role" → ClaimTypes.Role on decode;
+        // RoleClaimType must match the final decoded claim type
+        RoleClaimType = ClaimTypes.Role
     };
 
     // Customize responses for authentication/authorization failures
@@ -329,8 +334,3 @@ using (var scope = app.Services.CreateScope())
 
 app.Run();
 
-
-//dotnet ef migrations add RemoveUserRoleString --project .\Ecommerce.Infrastructure\Ecommerce.Infrastructure.csproj --startup-project .\Ecommerce.API.csproj --context Ecommerce.Infrastructure.Data.ApplicationDbContext
-//dotnet ef database update --project .\Ecommerce.Infrastructure\Ecommerce.Infrastructure.csproj --startup-project .\Ecommerce.API.csproj --context Ecommerce.Infrastructure.Data.ApplicationDbContext
-//dotnet ef database update 20260311061910_AddUserTable --project .\Ecommerce.Infrastructure\Ecommerce.Infrastructure.csproj --startup-project .\Ecommerce.API.csproj --context Ecommerce.Infrastructure.Data.ApplicationDbContext
-//dotnet ef migrations remove --project .\Ecommerce.Infrastructure\Ecommerce.Infrastructure.csproj --startup-project .\Ecommerce.API.csproj --context Ecommerce.Infrastructure.Data.ApplicationDbContext

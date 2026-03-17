@@ -32,19 +32,21 @@ public class JwtTokenServiceTests
     {
         var role = new Role
         {
-            Id = Guid.NewGuid(),
+            Id = new System.Random().Next(1, 10000),
             Name = "Admin"
         };
 
+        var userId = new System.Random().Next(1, 10000);
+
         var user = new User
         {
-            Id = 1,
+            Id = userId,
             Email = "test@email.com"
         };
 
         user.UserRoles.Add(new UserRole
         {
-            UserId = 1,
+            UserId = userId,
             RoleId = role.Id,
             Role = role,
             User = user
@@ -57,7 +59,7 @@ public class JwtTokenServiceTests
 
         jwt.Claims.Should().Contain(c =>
             c.Type == ClaimTypes.NameIdentifier &&
-            c.Value == "1"
+            c.Value == userId.ToString()
         );
 
         jwt.Claims.Should().Contain(c =>
@@ -66,7 +68,7 @@ public class JwtTokenServiceTests
         );
 
         jwt.Claims.Should().Contain(c =>
-            c.Type == ClaimTypes.Role &&
+            c.Type == "role" &&
             c.Value == "Admin"
         );
     }
