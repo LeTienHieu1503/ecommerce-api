@@ -54,4 +54,26 @@ public class AuthController : BaseApiController
             Roles = roles
         });
     }
+
+    [HttpPost("refresh")]
+    public async Task<IActionResult> Refresh(TokenRequestDto request)
+    {
+        var result = await _authService.RefreshTokenAsync(request);
+        return Success(result, "Token refreshed successfully");
+    }
+
+    [Authorize]
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout()
+    {
+        var token = HttpContext.Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").Last();
+        var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (!string.IsNullOrEmpty(token) && int.TryParse(userIdStr, out var userId))
+        {
+            await _authService.LogoutAsync(token, userId);
+        }
+
+        return Success("", "Logout successfully");
+    }
 }

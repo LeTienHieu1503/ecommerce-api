@@ -99,18 +99,34 @@ builder.Services
             return Task.CompletedTask;
         },
 
-        OnTokenValidated = context =>
+        OnTokenValidated = async context =>
         {
             var logger = context.HttpContext.RequestServices
                 .GetRequiredService<ILogger<Program>>();
 
             var username = context.Principal?.Identity?.Name;
 
+            var blacklistService = context.HttpContext.RequestServices
+                .GetRequiredService<ITokenBlacklistService>();
+
+            if (context.SecurityToken != null)
+            {
+                var tokenString = context.Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").Last();
+                if (!string.IsNullOrEmpty(tokenString))
+                {
+                    var isBlacklisted = await blacklistService.IsTokenBlacklistedAsync(tokenString);
+                    if (isBlacklisted)
+                    {
+                        logger.LogWarning("Blacklisted token used by user {User}", username);
+                        context.Fail("This token has been blacklisted.");
+                        return;
+                    }
+                }
+            }
+
             logger.LogInformation(
                 "JWT validated for user {User}",
                 username);
-
-            return Task.CompletedTask;
         },
 
         OnChallenge = async context =>

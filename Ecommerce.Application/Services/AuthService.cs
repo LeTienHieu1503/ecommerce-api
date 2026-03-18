@@ -18,17 +18,20 @@ public class AuthService : IAuthService
     private readonly IRoleRepository _roleRepository;
     private readonly ILogger<AuthService> _logger;
     private readonly IJwtTokenService _jwtTokenService;
+    private readonly ITokenBlacklistService _blacklistService;
 
     public AuthService(
         IUserRepository userRepository,
         IJwtTokenService jwtTokenService,
         ILogger<AuthService> logger,
-        IRoleRepository roleRepository)
+        IRoleRepository roleRepository,
+        ITokenBlacklistService blacklistService)
     {
         _userRepository = userRepository;
         _jwtTokenService = jwtTokenService;
         _logger = logger;
         _roleRepository = roleRepository;
+        _blacklistService = blacklistService;
     }
 
     public async Task RegisterAsync(RegisterRequestDto request)
@@ -93,17 +96,104 @@ public class AuthService : IAuthService
         }
 
         var token = _jwtTokenService.GenerateToken(user);
+        var refreshToken = _jwtTokenService.GenerateRefreshToken();
+
+        user.RefreshToken = refreshToken;
+        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+        await _userRepository.SaveChangesAsync();
 
         _logger.LogInformation("User login success {UserId}", user.Id);
 
         return new LoginResponseDto
         {
             Token = token,
+            RefreshToken = refreshToken,
             Id = user.Id,
             Email = user.Email,
             Roles = user.UserRoles
             .Select(ur => ur.Role.Name)
             .ToList()
         };
+    }
+
+    public async Task<LoginResponseDto> RefreshTokenAsync(TokenRequestDto request)
+    {
+        var principal = _jwtTokenService.GetPrincipalFromExpiredToken(request.AccessToken);
+        if (principal == null)
+        {
+            throw new SecurityTokenException("Invalid access token or refresh token");
+        }
+
+        var email = principal.FindFirst(ClaimTypes.Email)?.Value;
+        if (string.IsNullOrEmpty(email))
+        {
+            throw new SecurityTokenException("Invalid access token or refresh token");
+        }
+
+        var user = await _userRepository.GetByEmailAsync(email);
+
+        if (user == null || user.RefreshToken != request.RefreshToken || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
+        {
+            throw new SecurityTokenException("Invalid access token or refresh token");
+        }
+
+        var newAccessToken = _jwtTokenService.GenerateToken(user);
+        var newRefreshToken = _jwtTokenService.GenerateRefreshToken();
+
+        user.RefreshToken = newRefreshToken;
+        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+        await _userRepository.SaveChangesAsync();
+
+        // Blacklist the old access token so it cannot be reused
+        var handler = new JwtSecurityTokenHandler();
+        if (handler.CanReadToken(request.AccessToken))
+        {
+            var jwtToken = handler.ReadJwtToken(request.AccessToken);
+            var expiryTime = jwtToken.ValidTo;
+            var currentTime = DateTime.UtcNow;
+
+            if (expiryTime > currentTime)
+            {
+                var timeSpan = expiryTime - currentTime;
+                await _blacklistService.BlacklistTokenAsync(request.AccessToken, timeSpan);
+            }
+        }
+
+        return new LoginResponseDto
+        {
+            Token = newAccessToken,
+            RefreshToken = newRefreshToken,
+            Id = user.Id,
+            Email = user.Email,
+            Roles = user.UserRoles.Select(ur => ur.Role.Name).ToList()
+        };
+    }
+
+    public async Task LogoutAsync(string token, int userId)
+    {
+        // 1. Blacklist the access token in Redis (even if already expired — harmless, TTL = 0 means instant expiry)
+        var handler = new JwtSecurityTokenHandler();
+        if (handler.CanReadToken(token))
+        {
+            var jwtToken = handler.ReadJwtToken(token);
+            var expiryTime = jwtToken.ValidTo;
+            var currentTime = DateTime.UtcNow;
+
+            // Only blacklist if the token still has lifetime remaining
+            if (expiryTime > currentTime)
+            {
+                var timeSpan = expiryTime - currentTime;
+                await _blacklistService.BlacklistTokenAsync(token, timeSpan);
+            }
+        }
+
+        // 2. Invalidate the refresh token in DB so it cannot be reused
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user != null)
+        {
+            user.RefreshToken = null;
+            user.RefreshTokenExpiryTime = null;
+            await _userRepository.SaveChangesAsync();
+        }
     }
 }

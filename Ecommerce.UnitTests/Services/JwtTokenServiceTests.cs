@@ -72,4 +72,23 @@ public class JwtTokenServiceTests
             c.Value == "Admin"
         );
     }
+
+    [Fact]
+    public void GenerateRefreshToken_ShouldReturnNotEmptyString()
+    {
+        var result = _service.GenerateRefreshToken();
+        result.Should().NotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public void GetPrincipalFromExpiredToken_ShouldReturnPrincipal_WhenTokenIsValid()
+    {
+        var user = new User { Id = 1, Email = "test@email.com" };
+        var token = _service.GenerateToken(user);
+        
+        var principal = _service.GetPrincipalFromExpiredToken(token);
+        
+        principal.Should().NotBeNull();
+        principal.FindFirst(ClaimTypes.Email)?.Value.Should().Be("test@email.com");
+    }
 }
