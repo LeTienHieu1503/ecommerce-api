@@ -200,7 +200,8 @@ builder.Services.AddAuthorization(options =>
     string[] permissions =
     {
         "product.create", "product.read", "product.update", "product.delete",
-        "category.create", "category.read", "category.update", "category.delete"
+        "category.create", "category.read", "category.update", "category.delete",
+        "order.create", "order.read", "order.update", "order.delete"
     };
 
     foreach (var permission in permissions)
@@ -218,6 +219,7 @@ builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IRoleService, RoleService>();
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<ITokenBlacklistService, TokenBlacklistService>();
+builder.Services.AddScoped<IOrderService, OrderService>();
 
 // Cache: Redis when configured, otherwise in-memory (for local dev without Redis)
 var redisConnection = builder.Configuration.GetConnectionString("Redis");
@@ -239,11 +241,13 @@ else
 
 // Register repositories for Dependency Injection
 builder.Services.AddScoped<ICacheService, RedisCacheService>();
+builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IRoleRepository, RoleRepository>();
 builder.Services.AddScoped<IPermissionRepository, PermissionRepository>();
+builder.Services.AddScoped<IOrderRepository, OrderRepository>();
 builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
 
 builder.Services.AddControllers();

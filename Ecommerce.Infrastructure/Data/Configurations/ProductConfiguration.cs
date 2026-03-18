@@ -31,6 +31,13 @@ namespace Ecommerce.API.Configurations
 
             builder.HasIndex(p => p.Price);
 
+            builder.Property(p => p.Stock)
+                .IsRequired()
+                .HasDefaultValue(0);
+
+            builder.Property(p => p.RowVersion)
+                .IsRowVersion();
+
             builder.HasIndex(p => new { p.CategoryId, p.Id });
 
             builder.HasQueryFilter(p => !p.IsDeleted);

@@ -17,6 +17,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<Permission> Permissions { get; set; } = null!;
     public DbSet<UserRole> UserRoles { get; set; } = null!;
     public DbSet<RolePermission> RolePermissions { get; set; } = null!;
+    public DbSet<Order> Orders { get; set; } = null!;
+    public DbSet<OrderItem> OrderItems { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

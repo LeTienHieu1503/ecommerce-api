@@ -7,6 +7,7 @@ using Ecommerce.Domain.Exceptions;
 using Ecommerce.Domain.Interfaces;
 using Ecommerce.Application.Interfaces;
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using Ecommerce.Application.Common.Caching;
 using Ecommerce.Application.Common.Logging;
 
@@ -46,7 +47,8 @@ public class ProductService : IProductService
         {
             Name = dto.Name,
             Price = dto.Price,
-            CategoryId = dto.CategoryId
+            CategoryId = dto.CategoryId,
+            Stock = dto.Stock
         };
 
         await _productRepository.AddAsync(product);
@@ -132,6 +134,8 @@ public class ProductService : IProductService
             Price = p.Price,
             CategoryId = p.CategoryId,
             CategoryName = p.Category.Name,
+            Stock = p.Stock,
+            RowVersion = p.RowVersion,
             CreatedAt = p.CreatedAt,
             UpdatedAt = p.UpdatedAt
         });
@@ -167,9 +171,21 @@ public class ProductService : IProductService
         product.Name = dto.Name;
         product.Price = dto.Price;
         product.CategoryId = dto.CategoryId;
+        product.Stock = dto.Stock;
         product.UpdatedAt = DateTime.UtcNow;
 
-        await _productRepository.SaveChangesAsync();
+        // Apply concurrency token
+        _productRepository.UpdateConcurrencyToken(product, dto.RowVersion);
+
+        try
+        {
+            await _productRepository.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _logger.LogError("Concurrency conflict during product update. ProductId={ProductId}", id);
+            throw new BusinessException("The product was updated by another user. Please refresh and try again.");
+        }
 
         await _cache.RemoveAsync(CacheKeysProduct.Product(id));
         await BumpProductListVersionAsync();

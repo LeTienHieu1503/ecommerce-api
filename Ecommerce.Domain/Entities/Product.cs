@@ -8,6 +8,8 @@ namespace Ecommerce.Domain.Entities
 
         public decimal Price { get; set; }
 
+        public int Stock { get; set; }
+
         public int CategoryId { get; set; }
 
         public Category Category { get; set; } = null!;
@@ -17,5 +19,7 @@ namespace Ecommerce.Domain.Entities
         public DateTime? UpdatedAt { get; set; }
 
         public bool IsDeleted { get; set; }
+
+        public byte[] RowVersion { get; set; } = null!;
     }
 }
