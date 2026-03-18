@@ -1,13 +1,16 @@
 using BCrypt.Net;
 using Ecommerce.Application.DTOs.Auth;
+using Ecommerce.Application.Common.Logging;
 using Ecommerce.Domain.Entities;
 using Ecommerce.Domain.Interfaces;
+using Ecommerce.Domain.Exceptions;
 using Ecommerce.Application.Interfaces;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using Ecommerce.Application.DTOs.Auth;
 using System.Text;
 
 namespace Ecommerce.Application.Services;
@@ -73,48 +76,40 @@ public class AuthService : IAuthService
     }
 
     public async Task<LoginResponseDto> LoginAsync(LoginRequestDto request)
+{
+    var email = request.Email.Trim().ToLower();
+    var user = await _userRepository.GetByEmailAsync(email);
+    if (user == null)
     {
-        var email = request.Email.Trim().ToLower();
-
-        var user = await _userRepository.GetByEmailAsync(email);
-
-        if (user == null)
-        {
-            _logger.LogWarning("Login failed: email not found {Email}", email);
-            throw new UnauthorizedAccessException("Invalid credentials");
-        }
-
-        var validPassword = BCrypt.Net.BCrypt.Verify(
-            request.Password,
-            user.PasswordHash
-        );
-
-        if (!validPassword)
-        {
-            _logger.LogWarning("Login failed: wrong password for {Email}", email);
-            throw new UnauthorizedAccessException("Invalid credentials");
-        }
-
-        var token = _jwtTokenService.GenerateToken(user);
-        var refreshToken = _jwtTokenService.GenerateRefreshToken();
-
-        user.RefreshToken = refreshToken;
-        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
-        await _userRepository.SaveChangesAsync();
-
-        _logger.LogInformation("User login success {UserId}", user.Id);
-
-        return new LoginResponseDto
-        {
-            Token = token,
-            RefreshToken = refreshToken,
-            Id = user.Id,
-            Email = user.Email,
-            Roles = user.UserRoles
+        _logger.LogWarning(LogMessages.AuthEmailNotFound, email);
+        throw new UnauthorizedException("Invalid credentials");
+    }
+    var validPassword = BCrypt.Net.BCrypt.Verify(
+        request.Password,
+        user.PasswordHash
+    );
+    if (!validPassword)
+    {
+        _logger.LogWarning(LogMessages.AuthWrongPassword, email);
+        throw new UnauthorizedException("Invalid credentials");
+    }
+    var token = _jwtTokenService.GenerateToken(user);
+    var refreshToken = _jwtTokenService.GenerateRefreshToken();
+    user.RefreshToken = refreshToken;
+    user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+    await _userRepository.SaveChangesAsync();
+    _logger.LogInformation(LogMessages.AuthLoginSuccess, user.Id);
+    return new LoginResponseDto
+    {
+        Token = token,
+        RefreshToken = refreshToken,
+        Id = user.Id,
+        Email = user.Email,
+        Roles = user.UserRoles
             .Select(ur => ur.Role.Name)
             .ToList()
-        };
-    }
+    };
+}
 
     public async Task<LoginResponseDto> RefreshTokenAsync(TokenRequestDto request)
     {

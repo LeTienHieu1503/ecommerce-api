@@ -19,4 +19,7 @@ public static class LogMessages
     public const string CategoryNotFound = "Category not found {CategoryId}";
     public const string CategoryHasProducts = "Cannot delete category {CategoryId} because it has products";
 
+    public const string AuthEmailNotFound = "Login failed: email not found {Email}";
+    public const string AuthWrongPassword = "Login failed: wrong password for {Email}";
+    public const string AuthLoginSuccess = "User login success {UserId}";
 }

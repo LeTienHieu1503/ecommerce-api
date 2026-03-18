@@ -258,11 +258,11 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
     options.InvalidModelStateResponseFactory = context =>
     {
         var errors = context.ModelState
-            .Where(x => x.Value.Errors.Count > 0)
+            .Where(x => x.Value?.Errors.Count > 0)
             .Select(x => new
             {
                 Field = x.Key,
-                Messages = x.Value.Errors.Select(e => e.ErrorMessage)
+                Messages = x.Value?.Errors.Select(e => e.ErrorMessage)
             });
 
         var response = new
