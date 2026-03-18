@@ -20,6 +20,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using StackExchange.Redis;
 using Microsoft.AspNetCore.Authorization;
+using Serilog.Context;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -31,11 +32,12 @@ Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Override("System", Serilog.Events.LogEventLevel.Warning)
     .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning)
 
-    .WriteTo.Console()
+    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] [{RequestId}] {Message:lj}{NewLine}{Exception}")
     .WriteTo.File(
         "logs/log-.txt",
         rollingInterval: RollingInterval.Day,
-        retainedFileCountLimit: 30
+        retainedFileCountLimit: 30,
+        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{RequestId}] {Message:lj}{NewLine}{Exception}"
     )
     .CreateLogger();
 
@@ -316,28 +318,25 @@ app.UseHttpsRedirection();
 //Logging
 app.Use(async (context, next) =>
 {
-    var logger = context.RequestServices
-        .GetRequiredService<ILogger<Program>>();
-
-    var method = context.Request.Method;
-    var path = context.Request.Path;
-
-    var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
-    await next();
-
-    var statusCode = context.Response.StatusCode;
-
-    var user = context.User?.Identity?.Name ?? "anonymous";
-
-    logger.LogInformation(
-        "User {User} -> {Method} {Path} -> {StatusCode} ({Elapsed} ms)",
-        user,
-        method,
-        path,
-        statusCode,
-        stopwatch.ElapsedMilliseconds
-    );
+    var requestId = context.TraceIdentifier;
+    using (LogContext.PushProperty("RequestId", requestId))
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        var method = context.Request.Method;
+        var path = context.Request.Path;
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await next();
+        var statusCode = context.Response.StatusCode;
+        var user = context.User?.Identity?.Name ?? "anonymous";
+        logger.LogInformation(
+            "User {User} -> {Method} {Path} -> {StatusCode} ({Elapsed} ms)",
+            user,
+            method,
+            path,
+            statusCode,
+            stopwatch.ElapsedMilliseconds
+        );
+    }
 });
 
 app.UseAuthentication();
