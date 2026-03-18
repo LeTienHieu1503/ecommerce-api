@@ -4,13 +4,13 @@ namespace Ecommerce.Application.DTOs.Product;
 
 public class UpdateProductDto
 {
-    [Required]
+    [Required(ErrorMessage = "Name is Required")]
     [MaxLength(200)]
     public string Name { get; set; } = string.Empty;
 
     [Range(0, double.MaxValue)]
     public decimal Price { get; set; }
 
-    [Required]
+    [Required(ErrorMessage = "CategoryId is Required")]
     public int CategoryId { get; set; }
 }

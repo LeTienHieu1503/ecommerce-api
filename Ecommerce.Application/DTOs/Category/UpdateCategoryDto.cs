@@ -4,6 +4,6 @@ namespace Ecommerce.Application.DTOs.Category;
 
 public class UpdateCategoryDto
 {
-    [Required]
+    [Required(ErrorMessage = "Name is Required")]
     public string Name { get; set; } = string.Empty;
 }

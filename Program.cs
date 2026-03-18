@@ -32,6 +32,11 @@ Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning)
 
     .WriteTo.Console()
+    .WriteTo.File(
+        "logs/log-.txt",
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 30
+    )
     .CreateLogger();
 
 builder.Host.UseSerilog();
@@ -39,14 +44,16 @@ builder.Host.UseSerilog();
 //Redis
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("Redis");
-    if (string.IsNullOrEmpty(connectionString))
-    {
-        throw new InvalidOperationException("Redis connection string is missing.");
-    }
-    var options = ConfigurationOptions.Parse(connectionString);
-    options.AbortOnConnectFail = false;
-    return ConnectionMultiplexer.Connect(options);
+    //var connectionString = builder.Configuration.GetConnectionString("Redis");
+    //if (string.IsNullOrEmpty(connectionString))
+    //{
+    //    throw new InvalidOperationException("Redis connection string is missing.");
+    //}
+    //var options = ConfigurationOptions.Parse(connectionString);
+    //options.AbortOnConnectFail = false;
+    //return ConnectionMultiplexer.Connect(options);
+    var configuration = builder.Configuration.GetConnectionString("Redis");
+    return ConnectionMultiplexer.Connect(configuration);
 });
 
 // Register DbContext and configure SQL Server connection
@@ -56,7 +63,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 // Read JWT settings from appsettings.json
 var jwt = builder.Configuration.GetSection("Jwt");
-var key = Encoding.UTF8.GetBytes(jwt["Key"]!);
+var jwtKey = jwt["Key"] ?? throw new Exception("JWT Key is missing");
 
 // Configure JWT Bearer Authentication
 builder.Services
@@ -76,7 +83,7 @@ builder.Services
         ValidAudience = jwt["Audience"],
 
         IssuerSigningKey = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(jwt["Key"]!)
+            Encoding.UTF8.GetBytes(jwtKey)
         ),
 
         // DefaultInboundClaimTypeMap maps "role" → ClaimTypes.Role on decode;
@@ -208,6 +215,7 @@ builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IRoleService, RoleService>();
 builder.Services.AddScoped<IPermissionService, PermissionService>();
+builder.Services.AddScoped<ITokenBlacklistService, TokenBlacklistService>();
 
 // Cache: Redis when configured, otherwise in-memory (for local dev without Redis)
 var redisConnection = builder.Configuration.GetConnectionString("Redis");
@@ -303,7 +311,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
-//app.UseHttpsRedirection();
+app.UseHttpsRedirection();
 
 //Logging
 app.Use(async (context, next) =>

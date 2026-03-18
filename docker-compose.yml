@@ -6,6 +6,7 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:80
+      - Jwt__Key=${Jwt__Key}
     ports:
       - "5169:80"
     depends_on:
