@@ -1,14 +1,13 @@
-# Base stage
+# Runtime image
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
 WORKDIR /app
 EXPOSE 80
-EXPOSE 443
 
-# Build stage
+# Build image
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copy csproj files and restore
+# Copy csproj first for restore caching
 COPY ["Ecommerce.API.csproj", "./"]
 COPY ["Ecommerce.Application/Ecommerce.Application.csproj", "Ecommerce.Application/"]
 COPY ["Ecommerce.Domain/Ecommerce.Domain.csproj", "Ecommerce.Domain/"]
@@ -16,16 +15,16 @@ COPY ["Ecommerce.Infrastructure/Ecommerce.Infrastructure.csproj", "Ecommerce.Inf
 
 RUN dotnet restore "Ecommerce.API.csproj"
 
-# Copy everything else and build
+# Copy all source
 COPY . .
-RUN dotnet build "Ecommerce.API.csproj" -c Release -o /app/build
 
-# Publish stage
-FROM build AS publish
+# Build + publish
+RUN dotnet build "Ecommerce.API.csproj" -c Release -o /app/build
 RUN dotnet publish "Ecommerce.API.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
-# Root stage
+# Final image
 FROM base AS final
 WORKDIR /app
-COPY --from=publish /app/publish .
+COPY --from=build /app/publish .
+ENV ASPNETCORE_URLS=http://+:80
 ENTRYPOINT ["dotnet", "Ecommerce.API.dll"]

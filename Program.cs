@@ -1,4 +1,6 @@
 using Ecommerce.API.Authorization.Policies;
+using Ecommerce.Application.Common.Security;
+using Ecommerce.Application.DTOs.Auth;
 using Ecommerce.API.Authorization.Handlers;
 using Ecommerce.API.Authorization.Requirements;
 using Ecommerce.API.Middleware;
@@ -33,30 +35,15 @@ Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning)
 
     .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] [{RequestId}] {Message:lj}{NewLine}{Exception}")
-    .WriteTo.File(
-        "logs/log-.txt",
-        rollingInterval: RollingInterval.Day,
-        retainedFileCountLimit: 30,
-        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{RequestId}] {Message:lj}{NewLine}{Exception}"
-    )
+    // .WriteTo.File(
+    //     "logs/log-.txt",
+    //     rollingInterval: RollingInterval.Day,
+    //     retainedFileCountLimit: 30,
+    //     outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{RequestId}] {Message:lj}{NewLine}{Exception}"
+    // )
     .CreateLogger();
 
 builder.Host.UseSerilog();
-
-//Redis
-builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-{
-    //var connectionString = builder.Configuration.GetConnectionString("Redis");
-    //if (string.IsNullOrEmpty(connectionString))
-    //{
-    //    throw new InvalidOperationException("Redis connection string is missing.");
-    //}
-    //var options = ConfigurationOptions.Parse(connectionString);
-    //options.AbortOnConnectFail = false;
-    //return ConnectionMultiplexer.Connect(options);
-    var configuration = builder.Configuration.GetConnectionString("Redis");
-    return ConnectionMultiplexer.Connect(configuration);
-});
 
 // Register DbContext and configure SQL Server connection
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -114,9 +101,16 @@ builder.Services
                 .GetRequiredService<ILogger<Program>>();
 
             var username = context.Principal?.Identity?.Name;
+            var httpContext = context.HttpContext;
 
-            var blacklistService = context.HttpContext.RequestServices
+            var blacklistService = httpContext.RequestServices
                 .GetRequiredService<ITokenBlacklistService>();
+            var cacheService = httpContext.RequestServices
+                .GetRequiredService<ICacheService>();
+            var userRepository = httpContext.RequestServices
+                .GetRequiredService<IUserRepository>();
+            var configuration = httpContext.RequestServices
+                .GetRequiredService<IConfiguration>();
 
             if (context.SecurityToken != null)
             {
@@ -131,6 +125,79 @@ builder.Services
                         return;
                     }
                 }
+            }
+
+            var userIdRaw = context.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var sid = context.Principal?.FindFirst("sid")?.Value;
+            var svRaw = context.Principal?.FindFirst("sv")?.Value;
+            var iph = context.Principal?.FindFirst("iph")?.Value;
+
+            if (!int.TryParse(userIdRaw, out var userId) ||
+                string.IsNullOrWhiteSpace(sid) ||
+                !long.TryParse(svRaw, out var sv) ||
+                string.IsNullOrWhiteSpace(iph))
+            {
+                context.Fail("Invalid session claims.");
+                return;
+            }
+
+            var sessionCacheKey = $"auth:session:user:{userId}";
+            UserSessionState? sessionState = null;
+            try
+            {
+                sessionState = await cacheService.GetAsync<UserSessionState>(sessionCacheKey);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to read session cache for user {UserId}", userId);
+            }
+
+            if (sessionState == null)
+            {
+                var user = await userRepository.GetByIdAsync(userId);
+                if (user == null ||
+                    string.IsNullOrWhiteSpace(user.CurrentSessionId) ||
+                    string.IsNullOrWhiteSpace(user.LastLoginIpHash))
+                {
+                    context.Fail("Session not found.");
+                    return;
+                }
+
+                sessionState = new UserSessionState
+                {
+                    SessionId = user.CurrentSessionId,
+                    SessionVersion = user.SessionVersion,
+                    IpHash = user.LastLoginIpHash,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                try
+                {
+                    await cacheService.SetAsync(
+                        sessionCacheKey,
+                        sessionState,
+                        TimeSpan.FromDays(7));
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to write session cache for user {UserId}", userId);
+                }
+            }
+
+            var forwardedIp = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString();
+            var clientIp = string.IsNullOrWhiteSpace(forwardedIp) ? remoteIp : forwardedIp;
+
+            var fingerprintSecret = configuration["AuthSecurity:FingerprintSecret"] ?? "fallback-secret";
+            var currentIpHash = IpBindingHelper.ComputeIpHash(clientIp ?? "unknown", fingerprintSecret);
+
+            if (sessionState.SessionId != sid ||
+                sessionState.SessionVersion != sv ||
+                sessionState.IpHash != iph ||
+                sessionState.IpHash != currentIpHash)
+            {
+                context.Fail("Session invalidated.");
+                return;
             }
 
             logger.LogInformation(
@@ -228,19 +295,27 @@ var redisInstanceName = builder.Configuration["Redis:InstanceName"] ?? "Ecommerc
 
 if (redisEnabled && !string.IsNullOrWhiteSpace(redisConnection))
 {
-    builder.Services.AddStackExchangeRedisCache(options =>
+    var options = ConfigurationOptions.Parse(redisConnection);
+    options.AbortOnConnectFail = false;
+
+    builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+        ConnectionMultiplexer.Connect(options));
+
+    builder.Services.AddStackExchangeRedisCache(opt =>
     {
-        options.Configuration = redisConnection;
-        options.InstanceName = redisInstanceName;
+        opt.Configuration = redisConnection;
+        opt.InstanceName = redisInstanceName;
     });
+
+    builder.Services.AddScoped<ICacheService, RedisCacheService>();
 }
 else
 {
     builder.Services.AddDistributedMemoryCache();
+    builder.Services.AddScoped<ICacheService, MemoryCacheService>();
 }
 
 // Register repositories for Dependency Injection
-builder.Services.AddScoped<ICacheService, RedisCacheService>();
 builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
 builder.Services.AddScoped<IProductRepository, ProductRepository>();

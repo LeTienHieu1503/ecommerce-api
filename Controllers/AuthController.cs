@@ -28,8 +28,8 @@ public class AuthController : BaseApiController
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginRequestDto request)
     {
-        var result = await _authService.LoginAsync(request);
-
+        var clientIp = GetClientIp();
+        var result = await _authService.LoginAsync(request, clientIp);
         return Success(result, "Login successfully");
     }
 
@@ -58,7 +58,8 @@ public class AuthController : BaseApiController
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh(TokenRequestDto request)
     {
-        var result = await _authService.RefreshTokenAsync(request);
+        var clientIp = GetClientIp();
+        var result = await _authService.RefreshTokenAsync(request, clientIp);
         return Success(result, "Token refreshed successfully");
     }
 
@@ -75,5 +76,13 @@ public class AuthController : BaseApiController
         }
 
         return Success("", "Logout successfully");
+    }
+
+    private string GetClientIp()
+    {
+        var forwarded = HttpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(forwarded))
+            return forwarded.Split(',')[0].Trim();
+        return HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
     }
 }

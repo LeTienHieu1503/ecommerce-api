@@ -23,38 +23,41 @@ namespace Ecommerce.Application.Services
 
         public string GenerateToken(User user)
         {
+            var sessionId = user.CurrentSessionId ?? Guid.NewGuid().ToString("N");
+            var sessionVersion = user.SessionVersion;
+            var ipHash = user.LastLoginIpHash ?? "unknown";
+            return GenerateToken(user, sessionId, sessionVersion, ipHash);
+        }
+
+        public string GenerateToken(User user, string sessionId, long sessionVersion, string ipHash)
+        {
             var jwtSettings = _configuration.GetSection("Jwt");
 
             var jwtKey = jwtSettings["Key"];
             if (string.IsNullOrWhiteSpace(jwtKey))
                 throw new Exception("JWT Key is missing or empty");
 
-            var key = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(jwtKey)
-            );
-
-            var credentials = new SigningCredentials(
-                key,
-                SecurityAlgorithms.HmacSha256
-            );
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
+            var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var claims = new List<Claim>
             {
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
                 new Claim(ClaimTypes.Name, user.Email),
-                new Claim(ClaimTypes.Email, user.Email)
+                new Claim(ClaimTypes.Email, user.Email),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+                new Claim("sid", sessionId),
+                new Claim("sv", sessionVersion.ToString()),
+                new Claim("iph", ipHash)
             };
 
-            claims.AddRange(user.UserRoles
-                .Select(r => new Claim("role", r.Role.Name)));
+            claims.AddRange(user.UserRoles.Select(r => new Claim("role", r.Role.Name)));
 
             var token = new JwtSecurityToken(
                 issuer: jwtSettings["Issuer"],
                 audience: jwtSettings["Audience"],
                 claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(
-                    int.Parse(jwtSettings["ExpireMinutes"])
-                ),
+                expires: DateTime.UtcNow.AddMinutes(int.Parse(jwtSettings["ExpireMinutes"]!)),
                 signingCredentials: credentials
             );
 

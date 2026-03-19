@@ -223,9 +223,10 @@ public class OrderService : IOrderService
     {
         try
         {
-            var version = await _cache.GetAsync<long?>(CacheKeysProduct.ProductListVersion()) ?? 0;
-            await _cache.SetAsync(CacheKeysProduct.ProductListVersion(), version + 1, TimeSpan.FromDays(1));
-            _logger.LogInformation("Product list cache version bumped to {Version}", version + 1);
+            var version = await _cache.IncrementAsync(
+                CacheKeysProduct.ProductListVersion(),
+                TimeSpan.FromDays(1));
+            _logger.LogInformation("Product list cache version bumped to {Version}", version);
         }
         catch (Exception ex)
         {
