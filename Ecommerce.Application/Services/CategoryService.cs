@@ -17,6 +17,7 @@ public class CategoryService : ICategoryService
     private readonly ICategoryRepository _categoryRepository;
     private readonly ILogger<CategoryService> _logger;
     private readonly ICacheService _cache;
+    private static readonly SemaphoreSlim _categoryListLock = new SemaphoreSlim(1, 1);
 
     public CategoryService(
     ICategoryRepository categoryRepository,
@@ -42,32 +43,45 @@ public class CategoryService : ICategoryService
             return cached;
         }
 
-        _logger.LogInformation(LogMessages.CategoryCacheMiss, query);
-
-        var categories = _categoryRepository.GetQueryable();
-
-        if (!string.IsNullOrWhiteSpace(query.Search))
+        await _categoryListLock.WaitAsync();
+        try
         {
-            categories = categories.Where(c => c.Name.StartsWith(query.Search));
+            cached = await _cache.GetAsync<PagedResult<CategoryResponseDto>>(cacheKey);
+            if (cached != null)
+            {
+                _logger.LogInformation(LogMessages.CategoryCacheHit, query);
+                return cached;
+            }
+
+            _logger.LogInformation(LogMessages.CategoryCacheMiss, query);
+
+            var categories = _categoryRepository.GetQueryable();
+
+            if (!string.IsNullOrWhiteSpace(query.Search))
+            {
+                categories = categories.Where(c => c.Name.StartsWith(query.Search));
+            }
+
+            categories = categories.ApplySorting(query.SortBy, query.SortOrder);
+
+            var dtoQuery = categories.Select(c => new CategoryResponseDto
+            {
+                Id = c.Id,
+                Name = c.Name,
+                CreatedAt = c.CreatedAt,
+                UpdatedAt = c.UpdatedAt
+            });
+
+            var result = await dtoQuery.ToPagedResultAsync(query.Page, query.PageSize);
+
+            await _cache.SetAsync(cacheKey, result, TimeSpan.FromMinutes(5));
+
+            return result;
         }
-
-        categories = categories.ApplySorting(query.SortBy, query.SortOrder);
-
-        var dtoQuery = categories.Select(c => new CategoryResponseDto
+        finally
         {
-            Id = c.Id,
-            Name = c.Name,
-            CreatedAt = c.CreatedAt,
-            UpdatedAt = c.UpdatedAt
-        });
-
-        var result = await dtoQuery.ToPagedResultAsync(query.Page, query.PageSize);
-
-        await _cache.SetAsync(cacheKey, result, TimeSpan.FromMinutes(5));
-
-        await _cache.SetAsync(CacheKeysCategory.CategoryListVersion(), version, TimeSpan.FromDays(1));
-
-        return result;
+            _categoryListLock.Release();
+        }
     }
 
     public async Task<CategoryResponseDto> GetByIdAsync(int id)
@@ -170,11 +184,15 @@ public class CategoryService : ICategoryService
     }
     private async Task BumpCategoryListVersionAsync()
     {
-        var version = await _cache.GetAsync<long?>(CacheKeysCategory.CategoryListVersion()) ?? 0;
-
-        await _cache.SetAsync(
-            CacheKeysCategory.CategoryListVersion(),
-            version + 1,
-            TimeSpan.FromDays(1));
+        try
+        {
+            await _cache.IncrementAsync(
+                CacheKeysCategory.CategoryListVersion(),
+                TimeSpan.FromDays(1));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to bump category list cache version");
+        }
     }
 }

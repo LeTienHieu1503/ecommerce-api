@@ -8,6 +8,7 @@ public class PermissionService : IPermissionService
     private readonly IPermissionRepository _permissionRepository;
     private readonly ICacheService _cacheService;
     private const string PermissionsKeyPrefix = "permissions:";
+    private static readonly SemaphoreSlim _permissionsLock = new SemaphoreSlim(1, 1);
 
     public PermissionService(
         IPermissionRepository permissionRepository,
@@ -27,14 +28,28 @@ public class PermissionService : IPermissionService
             return cached;
         }
 
-        var permissions = await _permissionRepository.GetPermissionsByUserIdAsync(userId);
-
-        if (permissions.Count > 0)
+        await _permissionsLock.WaitAsync();
+        try
         {
-            await _cacheService.SetAsync(cacheKey, permissions, TimeSpan.FromMinutes(10));
-        }
+            cached = await _cacheService.GetAsync<List<string>>(cacheKey);
+            if (cached is { Count: > 0 })
+            {
+                return cached;
+            }
 
-        return permissions;
+            var permissions = await _permissionRepository.GetPermissionsByUserIdAsync(userId);
+
+            if (permissions.Count > 0)
+            {
+                await _cacheService.SetAsync(cacheKey, permissions, TimeSpan.FromMinutes(10));
+            }
+
+            return permissions;
+        }
+        finally
+        {
+            _permissionsLock.Release();
+        }
     }
 
     public async Task<IReadOnlyList<PermissionDto>> GetAllPermissionsAsync()

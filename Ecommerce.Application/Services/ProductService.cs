@@ -19,6 +19,8 @@ public class ProductService : IProductService
     private readonly ILogger<ProductService> _logger;
     private readonly ICacheService _cache;
 
+    private static readonly SemaphoreSlim _productListLock = new SemaphoreSlim(1, 1);
+
     public ProductService(
         IProductRepository productRepository,
         ILogger<ProductService> logger,
@@ -94,64 +96,75 @@ public class ProductService : IProductService
         var cacheKey = CacheKeysProduct.ProductList(query, version);
 
         var cached = await _cache.GetAsync<PagedResult<ProductResponseDto>>(cacheKey);
-
         if (cached != null)
         {
             _logger.LogInformation(LogMessages.ProductCacheHit, query);
             return cached;
         }
 
-        _logger.LogInformation(LogMessages.ProductCacheMiss, query);
-
-        var products = _productRepository.GetQueryable();
-
-        if (!string.IsNullOrWhiteSpace(query.Search))
+        await _productListLock.WaitAsync(TimeSpan.FromSeconds(10));
+        try
         {
-            products = products.Where(p => p.Name.StartsWith(query.Search));
+            cached = await _cache.GetAsync<PagedResult<ProductResponseDto>>(cacheKey);
+            if (cached != null)
+            {
+                _logger.LogInformation(LogMessages.ProductCacheHit, query);
+                return cached;
+            }
+
+            _logger.LogInformation(LogMessages.ProductCacheMiss, query);
+
+            var products = _productRepository.GetQueryable();
+
+            if (!string.IsNullOrWhiteSpace(query.Search))
+                products = products.Where(p => p.Name.StartsWith(query.Search));
+
+            if (query.CategoryId.HasValue)
+                products = products.Where(p => p.CategoryId == query.CategoryId.Value);
+
+            if (query.MinPrice.HasValue)
+                products = products.Where(p => p.Price >= query.MinPrice);
+
+            if (query.MaxPrice.HasValue)
+                products = products.Where(p => p.Price <= query.MaxPrice);
+
+            products = products.ApplySorting(query.SortBy, query.SortOrder);
+
+            var dtoQuery = products.Select(p => new ProductResponseDto
+            {
+                Id = p.Id,
+                Name = p.Name,
+                Price = p.Price,
+                CategoryId = p.CategoryId,
+                CategoryName = p.Category.Name,
+                Stock = p.Stock,
+                RowVersion = p.RowVersion,
+                CreatedAt = p.CreatedAt,
+                UpdatedAt = p.UpdatedAt
+            });
+
+            var result = await dtoQuery.ToPagedResultAsync(query.Page, query.PageSize);
+            await _cache.SetAsync(cacheKey, result, TimeSpan.FromMinutes(2));
+            return result;
         }
-
-        if (query.CategoryId.HasValue)
+        finally
         {
-            products = products.Where(p => p.CategoryId == query.CategoryId.Value);
+            _productListLock.Release();
         }
-
-        if (query.MinPrice.HasValue)
-        {
-            products = products.Where(p => p.Price >= query.MinPrice);
-        }
-
-        if (query.MaxPrice.HasValue)
-        {
-            products = products.Where(p => p.Price <= query.MaxPrice);
-        }
-
-        products = products.ApplySorting(query.SortBy, query.SortOrder);
-
-        var dtoQuery = products.Select(p => new ProductResponseDto
-        {
-            Id = p.Id,
-            Name = p.Name,
-            Price = p.Price,
-            CategoryId = p.CategoryId,
-            CategoryName = p.Category.Name,
-            Stock = p.Stock,
-            RowVersion = p.RowVersion,
-            CreatedAt = p.CreatedAt,
-            UpdatedAt = p.UpdatedAt
-        });
-
-        var result = await dtoQuery.ToPagedResultAsync(query.Page, query.PageSize);
-
-        await _cache.SetAsync(cacheKey, result, TimeSpan.FromMinutes(2));
-        await _cache.SetAsync(CacheKeysProduct.ProductListVersion(), version, TimeSpan.FromDays(1));
-
-        return result;
     }
 
     private async Task BumpProductListVersionAsync()
     {
-        var version = await _cache.GetAsync<long?>(CacheKeysProduct.ProductListVersion()) ?? 0;
-        await _cache.SetAsync(CacheKeysProduct.ProductListVersion(), version + 1, TimeSpan.FromDays(1));
+        try
+        {
+            await _cache.IncrementAsync(
+                CacheKeysProduct.ProductListVersion(),
+                TimeSpan.FromDays(1));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to bump product list cache version");
+        }
     }
 
     public async Task<ProductResponseDto> UpdateAsync(int id, UpdateProductDto dto)
