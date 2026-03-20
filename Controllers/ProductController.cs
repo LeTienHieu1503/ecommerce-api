@@ -68,6 +68,6 @@ public class ProductController : BaseApiController
     {
         await _service.DeleteAsync(id);
 
-        return DeleteSuccess();
+        return Success(new { id, deleted = true }, "Delete product successfully");
     }
 }

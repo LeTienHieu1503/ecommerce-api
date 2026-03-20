@@ -66,6 +66,6 @@ public class CategoryController : BaseApiController
     {
         await _service.DeleteAsync(id);
 
-        return DeleteSuccess();
+        return Success(new { id, deleted = true }, "Delete category successfully");
     }
 }

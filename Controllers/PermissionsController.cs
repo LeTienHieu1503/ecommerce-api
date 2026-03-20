@@ -38,20 +38,34 @@ public class PermissionsController : BaseApiController
     public async Task<IActionResult> CreatePermission([FromBody] CreatePermissionRequest request)
     {
         var id = await _permissionService.CreatePermissionAsync(request.Entity, request.Action);
-        return CreatedSuccess(new { id, name = $"{request.Entity}.{request.Action}", entity = request.Entity, action = request.Action });
+        var payload = new
+        {
+            id,
+            name = $"{request.Entity}.{request.Action}",
+            entity = request.Entity,
+            action = request.Action
+        };
+        return CreatedSuccess(payload, "Create permission successfully");
     }
 
     [HttpPut("{id:int}")]
     public async Task<IActionResult> UpdatePermission(int id, [FromBody] CreatePermissionRequest request)
     {
         await _permissionService.UpdatePermissionAsync(id, request.Entity, request.Action);
-        return Success("", "Update permission successfully");
+        var payload = new
+        {
+            id,
+            name = $"{request.Entity}.{request.Action}",
+            entity = request.Entity,
+            action = request.Action
+        };
+        return Success(payload, "Update permission successfully");
     }
 
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> DeletePermission(int id)
     {
         await _permissionService.DeletePermissionAsync(id);
-        return Success("", "Delete permission successfully");
+        return Success(new { id, deleted = true }, "Delete permission successfully");
     }
 }

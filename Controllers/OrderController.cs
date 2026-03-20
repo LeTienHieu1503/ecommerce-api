@@ -18,7 +18,7 @@ public class OrderController : BaseApiController
         _orderService = orderService;
     }
 
-    [Authorize (Policy = "order.create")]
+    [Authorize(Policy = "order.create")]
     [HttpPost]
     public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest request)
     {
@@ -28,11 +28,10 @@ public class OrderController : BaseApiController
             return Unauthorized(new ApiResponse<string>(401, false, "Invalid user identifier", null));
         }
 
-        // Enforce the order belongs to the authenticated user
         request.UserId = userId;
 
-        await _orderService.CreateOrderAsync(request);
-        return Success<string>(null!, "Order created successfully");
+        var order = await _orderService.CreateOrderAsync(request);
+        return CreatedSuccess(order, "Order created successfully");
     }
 
     [Authorize(Policy = "order.read")]
@@ -92,6 +91,8 @@ public class OrderController : BaseApiController
 
         var canCancelAnyOrder = User.IsInRole("Admin");
         await _orderService.CancelOrderAsync(id, currentUserId, canCancelAnyOrder);
-        return Success<string>(null!, "Order cancelled successfully");
+
+        var order = await _orderService.GetOrderByIdAsync(id);
+        return Success(order, "Order cancelled successfully");
     }
 }
