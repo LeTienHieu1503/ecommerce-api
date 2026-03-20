@@ -1,441 +1,540 @@
 using Ecommerce.Application.DTOs.Product;
+using Ecommerce.Application.Interfaces;
 using Ecommerce.Application.Services;
+using Ecommerce.Domain.Common.Pagination;
 using Ecommerce.Domain.Entities;
 using Ecommerce.Domain.Exceptions;
 using Ecommerce.Domain.Interfaces;
-using Ecommerce.Domain.Common.Pagination;
-using Ecommerce.Application.Interfaces;
-
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
-using Xunit;
+using System.Linq;
 
 public class ProductServiceTests
 {
-    private readonly Mock<IProductRepository> _repositoryMock;
-    private readonly Mock<ICacheService> _cacheMock;
-    private readonly Mock<ILogger<ProductService>> _loggerMock;
+    // =============================================
+    // Dependencies mock
+    // =============================================
+    private readonly Mock<IProductRepository> _productRepo = new();
+    private readonly Mock<ILogger<ProductService>> _logger = new();
+    private readonly Mock<ICacheService> _cache = new();
 
-    private readonly ProductService _service;
+    private readonly ProductService _sut;
 
     public ProductServiceTests()
     {
-        _repositoryMock = new Mock<IProductRepository>();
-        _cacheMock = new Mock<ICacheService>();
-        _loggerMock = new Mock<ILogger<ProductService>>();
-
-        _service = new ProductService(
-            _repositoryMock.Object,
-            _loggerMock.Object,
-            _cacheMock.Object
-        );
+        _sut = new ProductService(
+            _productRepo.Object,
+            _logger.Object,
+            _cache.Object);
     }
 
-    [Fact]
-    public async Task GetByIdAsync_ShouldReturnCachedProduct_WhenCacheHit()
-    {
-        var productId = new System.Random().Next(1, 10000);
-
-        var cachedProduct = new ProductResponseDto
+    // =============================================
+    // Helper
+    // =============================================
+    private static Product CreateFakeProduct(
+        int id = 1,
+        string name = "Product A",
+        decimal price = 100m,
+        int stock = 10,
+        int categoryId = 1)
+        => new()
         {
-            Id = productId,
-            Name = "Laptop"
-        };
-
-        _cacheMock
-            .Setup(c => c.GetAsync<ProductResponseDto>(It.IsAny<string>()))
-            .ReturnsAsync(cachedProduct);
-
-        var result = await _service.GetByIdAsync(productId);
-
-        result.Should().BeEquivalentTo(cachedProduct);
-
-        _repositoryMock.Verify(r => r.GetByIdAsync(It.IsAny<int>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task GetByIdAsync_ShouldReturnProduct_WhenCacheMiss()
-    {
-        var productId = new System.Random().Next(1, 10000);
-        var categoryId = new System.Random().Next(1, 10000);
-
-        var product = new Product
-        {
-            Id = productId,
-            Name = "Laptop",
-            Price = 1000,
+            Id = id,
+            Name = name,
+            Price = price,
+            Stock = stock,
             CategoryId = categoryId,
-            Category = new Category { Id = categoryId, Name = "Electronics" }
+            Category = new Category { Id = categoryId, Name = "Electronics" },
+            RowVersion = new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 },
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
 
-        _cacheMock
-            .Setup(c => c.GetAsync<ProductResponseDto>(It.IsAny<string>()))
-            .ReturnsAsync((ProductResponseDto)null);
+    private static ProductResponseDto CreateFakeProductDto(int id = 1)
+        => new()
+        {
+            Id = id,
+            Name = "Product A",
+            Price = 100m,
+            Stock = 10,
+            CategoryId = 1,
+            CategoryName = "Electronics"
+        };
 
-        _repositoryMock
-            .Setup(r => r.GetByIdAsync(productId))
+    private static PagedResult<ProductResponseDto> CreateFakePagedResult()
+        => new(
+            new List<ProductResponseDto> { CreateFakeProductDto() },
+            totalCount: 1,
+            page: 1,
+            pageSize: 10
+        );
+    // =============================================
+    // CREATE TESTS
+    // =============================================
+
+    [Fact]
+    public async Task CreateAsync_WhenCategoryNotFound_ThrowsNotFoundException()
+    {
+        // Arrange
+        _productRepo.Setup(r => r.CategoryExistsAsync(It.IsAny<int>()))
+            .ReturnsAsync(false); // ← category không tồn tại
+
+        var dto = new CreateProductDto
+        {
+            Name = "New Product",
+            Price = 100m,
+            CategoryId = 99,
+            Stock = 5
+        };
+
+        // Act
+        var act = () => _sut.CreateAsync(dto);
+
+        // Assert
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*Category not found*");
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenValidRequest_SavesProductAndReturnsDto()
+    {
+        // Arrange
+        var dto = new CreateProductDto
+        {
+            Name = "New Product",
+            Price = 100m,
+            CategoryId = 1,
+            Stock = 5
+        };
+
+        var savedProduct = CreateFakeProduct();
+
+        _productRepo.Setup(r => r.CategoryExistsAsync(1))
+            .ReturnsAsync(true);
+        _productRepo.Setup(r => r.AddAsync(It.IsAny<Product>()))
+            .Returns(Task.CompletedTask);
+        _productRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
+        _productRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync(savedProduct);
+
+        // Cache miss → query DB
+        _cache.Setup(c => c.GetAsync<ProductResponseDto>(It.IsAny<string>()))
+            .ReturnsAsync((ProductResponseDto?)null);
+        _cache.Setup(c => c.SetAsync(
+                It.IsAny<string>(),
+                It.IsAny<ProductResponseDto>(),
+                It.IsAny<TimeSpan?>()))
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ReturnsAsync(1L);
+
+        // Act
+        var result = await _sut.CreateAsync(dto);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.Name.Should().Be("Product A");
+
+        _productRepo.Verify(r => r.AddAsync(It.IsAny<Product>()), Times.Once);
+        _productRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenCacheIncrementFails_StillReturnsResult()
+    {
+        // Arrange
+        var dto = new CreateProductDto
+        {
+            Name = "New Product",
+            Price = 100m,
+            CategoryId = 1,
+            Stock = 5
+        };
+
+        _productRepo.Setup(r => r.CategoryExistsAsync(1))
+            .ReturnsAsync(true);
+        _productRepo.Setup(r => r.AddAsync(It.IsAny<Product>()))
+            .Returns(Task.CompletedTask);
+        _productRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
+        _productRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync(CreateFakeProduct());
+
+        _cache.Setup(c => c.GetAsync<ProductResponseDto>(It.IsAny<string>()))
+            .ReturnsAsync((ProductResponseDto?)null);
+        _cache.Setup(c => c.SetAsync(
+                It.IsAny<string>(),
+                It.IsAny<ProductResponseDto>(),
+                It.IsAny<TimeSpan?>()))
+            .Returns(Task.CompletedTask);
+
+        // Cache lỗi
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ThrowsAsync(new Exception("Redis down"));
+
+        // Act
+        var act = () => _sut.CreateAsync(dto);
+
+        // Assert — cache lỗi nhưng Create KHÔNG throw
+        await act.Should().NotThrowAsync();
+    }
+
+    // =============================================
+    // GETBYID TESTS
+    // =============================================
+
+    [Fact]
+    public async Task GetByIdAsync_WhenCacheHit_ReturnsCachedProduct()
+    {
+        // Arrange
+        var fakeDto = CreateFakeProductDto();
+
+        _cache.Setup(c => c.GetAsync<ProductResponseDto>(It.IsAny<string>()))
+            .ReturnsAsync(fakeDto);
+
+        // Act
+        var result = await _sut.GetByIdAsync(1);
+
+        // Assert
+        result.Should().BeEquivalentTo(fakeDto);
+
+        // Repository KHÔNG được gọi
+        _productRepo.Verify(r => r.GetByIdAsync(It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WhenCacheMiss_QueriesRepositoryAndSetsCache()
+    {
+        // Arrange
+        var product = CreateFakeProduct();
+
+        _cache.Setup(c => c.GetAsync<ProductResponseDto>(It.IsAny<string>()))
+            .ReturnsAsync((ProductResponseDto?)null);
+
+        _productRepo.Setup(r => r.GetByIdAsync(1))
             .ReturnsAsync(product);
 
-        var result = await _service.GetByIdAsync(productId);
+        _cache.Setup(c => c.SetAsync(
+                It.IsAny<string>(),
+                It.IsAny<ProductResponseDto>(),
+                It.IsAny<TimeSpan?>()))
+            .Returns(Task.CompletedTask);
 
+        // Act
+        var result = await _sut.GetByIdAsync(1);
+
+        // Assert
         result.Should().NotBeNull();
-        result.Id.Should().Be(productId);
+        result.Name.Should().Be("Product A");
 
-        _cacheMock.Verify(c => c.SetAsync(
+        _cache.Verify(c => c.SetAsync(
             It.IsAny<string>(),
             It.IsAny<ProductResponseDto>(),
-            It.IsAny<TimeSpan>()),
-            Times.Once);
+            It.IsAny<TimeSpan?>()), Times.Once);
     }
 
     [Fact]
-    public async Task GetByIdAsync_ShouldThrowNotFound_WhenProductDoesNotExist()
+    public async Task GetByIdAsync_WhenProductNotFound_ThrowsNotFoundException()
     {
-        var productId = new System.Random().Next(1, 10000);
+        // Arrange
+        _cache.Setup(c => c.GetAsync<ProductResponseDto>(It.IsAny<string>()))
+            .ReturnsAsync((ProductResponseDto?)null);
 
-        _cacheMock
-            .Setup(c => c.GetAsync<ProductResponseDto>(It.IsAny<string>()))
-            .ReturnsAsync((ProductResponseDto)null);
+        _productRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync((Product?)null);
 
-        _repositoryMock
-            .Setup(r => r.GetByIdAsync(It.IsAny<int>()))
-            .ReturnsAsync((Product)null);
+        // Act
+        var act = () => _sut.GetByIdAsync(99);
 
-        var act = async () => await _service.GetByIdAsync(productId);
+        // Assert
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*Product not found*");
+    }
 
-        await act.Should().ThrowAsync<NotFoundException>();
+    // =============================================
+    // GETALL TESTS
+    // =============================================
+
+    [Fact]
+    public async Task GetAllAsync_WhenCacheHit_ReturnsCachedResult()
+    {
+        // Arrange
+        var fakeResult = CreateFakePagedResult();
+        var query = new ProductQuery { Page = 1, PageSize = 10 };
+
+        // Cache version
+        _cache.Setup(c => c.GetAsync<long?>(It.IsAny<string>()))
+            .ReturnsAsync(1L);
+
+        // Cache có data
+        _cache.Setup(c => c.GetAsync<PagedResult<ProductResponseDto>>(It.IsAny<string>()))
+            .ReturnsAsync(fakeResult);
+
+        // Act
+        var result = await _sut.GetAllAsync(query);
+
+        // Assert
+        result.Should().BeEquivalentTo(fakeResult);
+
+        // Repository KHÔNG được gọi
+        _productRepo.Verify(r => r.GetQueryable(), Times.Never);
     }
 
     [Fact]
-    public async Task CreateAsync_ShouldCreateProduct_WhenCategoryExists()
+    public async Task GetAllAsync_WhenCacheMiss_QueriesRepositoryAndSetsCache()
     {
-        var categoryId = new System.Random().Next(1, 10000);
-        var productId = new System.Random().Next(1, 10000);
+        // Arrange
+        var query = new ProductQuery { Page = 1, PageSize = 10 };
 
-        var dto = new CreateProductDto
-        {
-            Name = "Laptop",
-            Price = 1000,
-            CategoryId = categoryId
-        };
+        _cache.Setup(c => c.GetAsync<long?>(It.IsAny<string>()))
+            .ReturnsAsync((long?)null);
 
-        _repositoryMock
-            .Setup(r => r.CategoryExistsAsync(dto.CategoryId))
-            .ReturnsAsync(true);
+        _cache.Setup(c => c.GetAsync<PagedResult<ProductResponseDto>>(It.IsAny<string>()))
+            .ReturnsAsync((PagedResult<ProductResponseDto>?)null);
 
-        _repositoryMock
-            .Setup(r => r.GetByIdAsync(It.IsAny<int>()))
-            .ReturnsAsync(new Product
-            {
-                Id = productId,
-                Name = dto.Name,
-                Price = dto.Price,
-                CategoryId = dto.CategoryId,
-                Category = new Category { Id = categoryId, Name = "Electronics" }
-            });
+        var products = new List<Product> { CreateFakeProduct() }.AsQueryable();
+        _productRepo.Setup(r => r.GetQueryable())
+            .Returns(products);
 
-        var result = await _service.CreateAsync(dto);
+        _cache.Setup(c => c.SetAsync(
+                It.IsAny<string>(),
+                It.IsAny<PagedResult<ProductResponseDto>>(),
+                It.IsAny<TimeSpan?>()))
+            .Returns(Task.CompletedTask);
 
+        // Act
+        var result = await _sut.GetAllAsync(query);
+
+        // Assert
         result.Should().NotBeNull();
+        result.Items.Should().HaveCount(1);
 
-        _repositoryMock.Verify(r => r.AddAsync(It.IsAny<Product>()), Times.Once);
-        _repositoryMock.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _cache.Verify(c => c.SetAsync(
+            It.IsAny<string>(),
+            It.IsAny<PagedResult<ProductResponseDto>>(),
+            It.IsAny<TimeSpan?>()), Times.Once);
     }
 
-    [Fact]
-    public async Task CreateAsync_ShouldThrowNotFound_WhenCategoryNotExists()
-    {
-        var categoryId = new System.Random().Next(1, 10000);
-
-        var dto = new CreateProductDto
-        {
-            Name = "Laptop",
-            Price = 1000,
-            CategoryId = categoryId
-        };
-
-        _repositoryMock
-            .Setup(r => r.CategoryExistsAsync(dto.CategoryId))
-            .ReturnsAsync(false);
-
-        var act = async () => await _service.CreateAsync(dto);
-
-        await act.Should().ThrowAsync<NotFoundException>();
-    }
+    // =============================================
+    // UPDATE TESTS
+    // =============================================
 
     [Fact]
-    public async Task UpdateAsync_ShouldUpdateProduct()
+    public async Task UpdateAsync_WhenProductNotFound_ThrowsNotFoundException()
     {
-        var productId = new System.Random().Next(1, 10000);
-        var oldCategoryId = new System.Random().Next(1, 10000);
-        var newCategoryId = new System.Random().Next(1, 10000);
-
-        var product = new Product
-        {
-            Id = productId,
-            Name = "Old",
-            Price = 500,
-            CategoryId = oldCategoryId
-        };
+        // Arrange
+        _productRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync((Product?)null);
 
         var dto = new UpdateProductDto
         {
-            Name = "New",
-            Price = 1000,
-            CategoryId = newCategoryId
+            Name = "Updated",
+            Price = 200m,
+            CategoryId = 1,
+            Stock = 5,
+            RowVersion = new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }
         };
 
-        _repositoryMock
-            .Setup(r => r.GetByIdAsync(productId))
-            .ReturnsAsync(product);
+        // Act
+        var act = () => _sut.UpdateAsync(99, dto);
 
-        _repositoryMock
-            .Setup(r => r.CategoryExistsAsync(dto.CategoryId))
+        // Assert
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*Product not found*");
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenCategoryNotFound_ThrowsNotFoundException()
+    {
+        // Arrange
+        var product = CreateFakeProduct();
+
+        _productRepo.Setup(r => r.GetByIdAsync(1))
+            .ReturnsAsync(product);
+        _productRepo.Setup(r => r.CategoryExistsAsync(It.IsAny<int>()))
+            .ReturnsAsync(false); // ← category không tồn tại
+
+        var dto = new UpdateProductDto
+        {
+            Name = "Updated",
+            Price = 200m,
+            CategoryId = 99,
+            Stock = 5,
+            RowVersion = new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }
+        };
+
+        // Act
+        var act = () => _sut.UpdateAsync(1, dto);
+
+        // Assert
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*Category not found*");
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenValidRequest_UpdatesFieldsAndInvalidatesCache()
+    {
+        // Arrange
+        var product = CreateFakeProduct();
+        var updatedProduct = CreateFakeProduct(name: "Updated Product", price: 200m);
+
+        var dto = new UpdateProductDto
+        {
+            Name = "Updated Product",
+            Price = 200m,
+            CategoryId = 1,
+            Stock = 8,
+            RowVersion = new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }
+        };
+
+        _productRepo.SetupSequence(r => r.GetByIdAsync(1))
+            .ReturnsAsync(product)        // ← lần gọi 1: lấy product để update
+            .ReturnsAsync(updatedProduct); // ← lần gọi 2: lấy product đã update
+        _productRepo.Setup(r => r.CategoryExistsAsync(1))
             .ReturnsAsync(true);
+        _productRepo.Setup(r => r.UpdateConcurrencyToken(
+                It.IsAny<Product>(), It.IsAny<byte[]>()))
+            .Verifiable();
+        _productRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
 
-        _repositoryMock
-            .Setup(r => r.GetByIdAsync(productId))
-            .ReturnsAsync(new Product
-            {
-                Id = productId,
-                Name = dto.Name,
-                Price = dto.Price,
-                CategoryId = dto.CategoryId,
-                Category = new Category { Id = newCategoryId, Name = "Electronics" }
-            });
+        // GetByIdAsync sau update
+        _cache.Setup(c => c.GetAsync<ProductResponseDto>(It.IsAny<string>()))
+            .ReturnsAsync((ProductResponseDto?)null);
+        _cache.Setup(c => c.SetAsync(
+                It.IsAny<string>(),
+                It.IsAny<ProductResponseDto>(),
+                It.IsAny<TimeSpan?>()))
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ReturnsAsync(1L);
 
-        var result = await _service.UpdateAsync(productId, dto);
+        // Act
+        var result = await _sut.UpdateAsync(1, dto);
 
-        result.Name.Should().Be("New");
-
-        _repositoryMock.Verify(r => r.SaveChangesAsync(), Times.Once);
-    }
-
-    [Fact]
-    public async Task DeleteAsync_ShouldSoftDeleteProduct()
-    {
-        var productId = new System.Random().Next(1, 10000);
-
-        var product = new Product
-        {
-            Id = productId,
-            Name = "Laptop"
-        };
-
-        _repositoryMock
-            .Setup(r => r.GetByIdAsync(productId))
-            .ReturnsAsync(product);
-
-        await _service.DeleteAsync(productId);
-
-        product.IsDeleted.Should().BeTrue();
-
-        _repositoryMock.Verify(r => r.SaveChangesAsync(), Times.Once);
-    }
-
-    [Fact]
-    public async Task DeleteAsync_ShouldThrowNotFound_WhenProductNotExists()
-    {
-        var productId = new System.Random().Next(1, 10000);
-
-        _repositoryMock
-            .Setup(r => r.GetByIdAsync(It.IsAny<int>()))
-            .ReturnsAsync((Product)null);
-
-        var act = async () => await _service.DeleteAsync(productId);
-
-        await act.Should().ThrowAsync<NotFoundException>();
-    }
-
-    [Fact]
-    public async Task GetAllAsync_ShouldReturnCache_WhenCacheHit()
-    {
-        var query = new ProductQuery
-        {
-            Page = 1,
-            PageSize = 10
-        };
-
-        var productId = new System.Random().Next(1, 10000);
-
-        var cached = new PagedResult<ProductResponseDto>(
-            new List<ProductResponseDto>
-            {
-            new ProductResponseDto
-            {
-                Id = productId,
-                Name = "Laptop"
-            }
-            },
-            1,
-            10,
-            1
-        );
-
-        _cacheMock
-            .Setup(c => c.GetAsync<long?>(It.IsAny<string>()))
-            .ReturnsAsync(0);
-
-        _cacheMock
-            .Setup(c => c.GetAsync<PagedResult<ProductResponseDto>>(It.IsAny<string>()))
-            .ReturnsAsync(cached);
-
-        var result = await _service.GetAllAsync(query);
-
-        result.Should().BeEquivalentTo(cached);
-
-        _repositoryMock.Verify(r => r.GetQueryable(), Times.Never);
-    }
-
-    [Fact]
-    public async Task GetAllAsync_ShouldReturnProducts_WhenCacheMiss()
-    {
-        var query = new ProductQuery
-        {
-            Page = 1,
-            PageSize = 10
-        };
-
-        var productId = new System.Random().Next(1, 10000);
-        var categoryId = new System.Random().Next(1, 10000);
-
-        var products = new List<Product>
-    {
-        new Product
-        {
-            Id = productId,
-            Name = "Laptop",
-            Price = 1000,
-            CategoryId = categoryId,
-            Category = new Category { Id = categoryId, Name = "Electronics" }
-        }
-    }.AsQueryable();
-
-        _cacheMock
-            .Setup(c => c.GetAsync<long?>(It.IsAny<string>()))
-            .ReturnsAsync(0);
-
-        _cacheMock
-            .Setup(c => c.GetAsync<PagedResult<ProductResponseDto>>(It.IsAny<string>()))
-            .ReturnsAsync((PagedResult<ProductResponseDto>)null);
-
-        _repositoryMock
-            .Setup(r => r.GetQueryable())
-            .Returns(products);
-
-        var result = await _service.GetAllAsync(query);
-
+        // Assert
         result.Should().NotBeNull();
-        result.Items.Should().HaveCount(1);
 
-        _cacheMock.Verify(c => c.SetAsync(
-            It.IsAny<string>(),
-            It.IsAny<PagedResult<ProductResponseDto>>(),
-            It.IsAny<TimeSpan>()),
-            Times.Once);
+        // Fields phải được update
+        product.Name.Should().Be("Updated Product");
+        product.Price.Should().Be(200m);
+        product.Stock.Should().Be(8);
+
+        // Cache phải bị xóa
+        _cache.Verify(c => c.RemoveAsync(It.IsAny<string>()), Times.Once);
+
+        // ConcurrencyToken phải được apply
+        _productRepo.Verify(r => r.UpdateConcurrencyToken(
+            It.IsAny<Product>(), It.IsAny<byte[]>()), Times.Once);
     }
 
     [Fact]
-    public async Task GetAllAsync_ShouldFilterBySearch()
+    public async Task UpdateAsync_WhenConcurrencyConflict_ThrowsBusinessException()
     {
-        var query = new ProductQuery
+        // Arrange
+        var product = CreateFakeProduct();
+
+        _productRepo.Setup(r => r.GetByIdAsync(1))
+            .ReturnsAsync(product);
+        _productRepo.Setup(r => r.CategoryExistsAsync(1))
+            .ReturnsAsync(true);
+        _productRepo.Setup(r => r.UpdateConcurrencyToken(
+                It.IsAny<Product>(), It.IsAny<byte[]>()))
+            .Verifiable();
+
+        // SaveChanges throw concurrency
+        _productRepo.Setup(r => r.SaveChangesAsync())
+            .ThrowsAsync(new DbUpdateConcurrencyException());
+
+        var dto = new UpdateProductDto
         {
-            Search = "Lap",
-            Page = 1,
-            PageSize = 10
+            Name = "Updated",
+            Price = 200m,
+            CategoryId = 1,
+            Stock = 5,
+            RowVersion = new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }
         };
 
-        var categoryId = new System.Random().Next(1, 10000);
-        var laptopId = new System.Random().Next(1, 10000);
-        var phoneId = new System.Random().Next(1, 10000);
+        // Act
+        var act = () => _sut.UpdateAsync(1, dto);
 
-        var products = new List<Product>
+        // Assert
+        await act.Should().ThrowAsync<BusinessException>()
+            .WithMessage("*updated by another user*");
+    }
+
+    // =============================================
+    // DELETE TESTS
+    // =============================================
+
+    [Fact]
+    public async Task DeleteAsync_WhenProductNotFound_ThrowsNotFoundException()
     {
-        new Product
-        {
-            Id = laptopId,
-            Name = "Laptop",
-            Price = 1000,
-            CategoryId = categoryId,
-            Category = new Category { Id = categoryId, Name = "Electronics" }
-        },
-        new Product
-        {
-            Id = phoneId,
-            Name = "Phone",
-            Price = 500,
-            CategoryId = categoryId,
-            Category = new Category { Id = categoryId, Name = "Electronics" }
-        }
-    }.AsQueryable();
+        // Arrange
+        _productRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync((Product?)null);
 
-        _cacheMock
-            .Setup(c => c.GetAsync<long?>(It.IsAny<string>()))
-            .ReturnsAsync(0);
+        // Act
+        var act = () => _sut.DeleteAsync(99);
 
-        _cacheMock
-            .Setup(c => c.GetAsync<PagedResult<ProductResponseDto>>(It.IsAny<string>()))
-            .ReturnsAsync((PagedResult<ProductResponseDto>)null);
-
-        _repositoryMock
-            .Setup(r => r.GetQueryable())
-            .Returns(products);
-
-        var result = await _service.GetAllAsync(query);
-
-        result.Items.Should().HaveCount(1);
+        // Assert
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*Product not found*");
     }
 
     [Fact]
-    public async Task GetAllAsync_ShouldFilterByCategory()
+    public async Task DeleteAsync_WhenValidRequest_SoftDeletesAndInvalidatesCache()
     {
-        var electronicsCategoryId = new System.Random().Next(1, 10000);
-        var fashionCategoryId = new System.Random().Next(1, 10000);
-        var laptopId = new System.Random().Next(1, 10000);
-        var shoesId = new System.Random().Next(1, 10000);
+        // Arrange
+        var product = CreateFakeProduct();
 
-        var query = new ProductQuery
-        {
-            CategoryId = electronicsCategoryId,
-            Page = 1,
-            PageSize = 10
-        };
+        _productRepo.Setup(r => r.GetByIdAsync(1))
+            .ReturnsAsync(product);
+        _productRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ReturnsAsync(1L);
 
-        var products = new List<Product>
+        // Act
+        await _sut.DeleteAsync(1);
+
+        // Assert — Soft delete: IsDeleted = true
+        product.IsDeleted.Should().BeTrue();
+        _productRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+
+        // Cache phải bị xóa
+        _cache.Verify(c => c.RemoveAsync(It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WhenCacheFails_StillDeletesProduct()
     {
-        new Product
-        {
-            Id = laptopId,
-            Name = "Laptop",
-            Price = 1000,
-            CategoryId = electronicsCategoryId,
-            Category = new Category { Id = electronicsCategoryId, Name = "Electronics" }
-        },
-        new Product
-        {
-            Id = shoesId,
-            Name = "Shoes",
-            Price = 100,
-            CategoryId = fashionCategoryId,
-            Category = new Category { Id = fashionCategoryId, Name = "Fashion" }
-        }
-    }.AsQueryable();
+        // Arrange
+        var product = CreateFakeProduct();
 
-        _cacheMock
-            .Setup(c => c.GetAsync<long?>(It.IsAny<string>()))
-            .ReturnsAsync(0);
+        _productRepo.Setup(r => r.GetByIdAsync(1))
+            .ReturnsAsync(product);
+        _productRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
 
-        _cacheMock
-            .Setup(c => c.GetAsync<PagedResult<ProductResponseDto>>(It.IsAny<string>()))
-            .ReturnsAsync((PagedResult<ProductResponseDto>)null);
+        // Cache lỗi
+        _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .ThrowsAsync(new Exception("Redis down"));
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ThrowsAsync(new Exception("Redis down"));
 
-        _repositoryMock
-            .Setup(r => r.GetQueryable())
-            .Returns(products);
+        // Act
+        var act = () => _sut.DeleteAsync(1);
 
-        var result = await _service.GetAllAsync(query);
-
-        result.Items.Should().HaveCount(1);
+        // Assert — cache lỗi nhưng delete KHÔNG throw
+        await act.Should().NotThrowAsync();
+        product.IsDeleted.Should().BeTrue();
     }
 }

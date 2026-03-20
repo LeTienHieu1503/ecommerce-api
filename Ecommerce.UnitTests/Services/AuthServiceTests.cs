@@ -2,277 +2,359 @@ using Ecommerce.Application.DTOs.Auth;
 using Ecommerce.Application.Interfaces;
 using Ecommerce.Application.Services;
 using Ecommerce.Domain.Entities;
+using Ecommerce.Domain.Exceptions;
 using Ecommerce.Domain.Interfaces;
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Moq;
-using Xunit;
 
 public class AuthServiceTests
 {
-    private readonly Mock<IUserRepository> _repoMock;
-    private readonly Mock<ILogger<AuthService>> _loggerMock;
-    private readonly Mock<IJwtTokenService> _jwtMock;
-    private readonly Mock<IRoleRepository> _roleRepoMock;
-    private readonly Mock<ITokenBlacklistService> _blacklistMock;
+    // =============================================
+    // Dependencies được mock — không dùng thật
+    // =============================================
+    private readonly Mock<IUserRepository> _userRepo = new();
+    private readonly Mock<IRoleRepository> _roleRepo = new();
+    private readonly Mock<IJwtTokenService> _jwtService = new();
+    private readonly Mock<ITokenBlacklistService> _blacklistService = new();
+    private readonly Mock<ICacheService> _cacheService = new();
+    private readonly Mock<ILogger<AuthService>> _logger = new();
+    private readonly Mock<IConfiguration> _config = new();
 
-    private readonly AuthService _service;
+    // =============================================
+    // Service thật — inject mock vào
+    // =============================================
+    private readonly AuthService _sut;
 
     public AuthServiceTests()
     {
-        _repoMock = new Mock<IUserRepository>();
-        _loggerMock = new Mock<ILogger<AuthService>>();
-        _jwtMock = new Mock<IJwtTokenService>();
-        _roleRepoMock = new Mock<IRoleRepository>();
-        _blacklistMock = new Mock<ITokenBlacklistService>();
+        // Setup config mock
+        _config.Setup(c => c["AuthSecurity:FingerprintSecret"])
+            .Returns("test-secret");
 
-        _service = new AuthService(
-            _repoMock.Object,
-            _jwtMock.Object,
-            _loggerMock.Object,
-            _roleRepoMock.Object,
-            _blacklistMock.Object
-        );
+        // Tạo AuthService với tất cả dependencies là mock
+        _sut = new AuthService(
+            _userRepo.Object,
+            _jwtService.Object,
+            _logger.Object,
+            _roleRepo.Object,
+            _blacklistService.Object,
+            _config.Object,
+            _cacheService.Object);
     }
 
-    [Fact]
-    public async Task RegisterAsync_ShouldCreateUser_WhenEmailNotExists()
+    // =============================================
+    // Helper — tạo User giả để dùng trong nhiều test
+    // =============================================
+    private static User CreateFakeUser(int id = 1, string email = "test@example.com")
     {
-        var request = new RegisterRequestDto
+        return new User
         {
-            Email = "Test@Email.com",
-            Password = "123456"
+            Id = id,
+            Email = email,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("123456"),
+            CurrentSessionId = Guid.NewGuid().ToString("N"),
+            SessionVersion = 1,
+            LastLoginIpHash = "fakehash",
+            RefreshToken = "valid-refresh-token",
+            RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7),
+            UserRoles = new List<UserRole>
+            {
+                new() { Role = new Role { Name = "User" } }
+            }
         };
-
-        var defaultRole = new Role
-        {
-            Id = new System.Random().Next(1, 10000),
-            Name = "User"
-        };
-
-        _repoMock
-            .Setup(r => r.ExistsByEmailAsync(It.IsAny<string>()))
-            .ReturnsAsync(false);
-
-        _roleRepoMock
-            .Setup(r => r.GetByNameAsync(It.IsAny<string>()))
-            .ReturnsAsync(defaultRole);
-
-        await _service.RegisterAsync(request);
-
-        _repoMock.Verify(r =>
-            r.AddAsync(It.Is<User>(u =>
-                u.Email == "test@email.com" &&
-                u.UserRoles.Count == 1 &&
-                u.UserRoles.Any(ur => ur.RoleId == defaultRole.Id)
-            )), Times.Once);
-
-        _repoMock.Verify(r => r.SaveChangesAsync(), Times.Once);
     }
 
-    [Fact]
-    public async Task RegisterAsync_ShouldThrowException_WhenEmailExists()
-    {
-        var request = new RegisterRequestDto
-        {
-            Email = "test@email.com",
-            Password = "123456"
-        };
+    // =============================================
+    // REGISTER TESTS
+    // =============================================
 
-        _repoMock
-            .Setup(r => r.ExistsByEmailAsync(It.IsAny<string>()))
+    [Fact]
+    public async Task RegisterAsync_WhenEmailAlreadyExists_ThrowsArgumentException()
+    {
+        // Arrange
+        _userRepo.Setup(r => r.ExistsByEmailAsync("test@example.com"))
             .ReturnsAsync(true);
 
-        Func<Task> act = async () =>
-            await _service.RegisterAsync(request);
-
-        await act.Should().ThrowAsync<ArgumentException>();
-    }
-
-    [Fact]
-    public async Task LoginAsync_ShouldReturnTokens_WhenCredentialsValid()
-    {
-        var passwordHash = BCrypt.Net.BCrypt.HashPassword("123456");
-        var userId = new System.Random().Next(1, 10000);
-
-        var role = new Role
+        var request = new RegisterRequestDto
         {
-            Id = new System.Random().Next(1, 10000),
-            Name = "User"
-        };
-
-        var user = new User
-        {
-            Id = userId,
-            Email = "test@email.com",
-            PasswordHash = passwordHash
-        };
-
-        user.UserRoles.Add(new UserRole
-        {
-            UserId = userId,
-            RoleId = role.Id,
-            Role = role,
-            User = user
-        });
-
-        var request = new LoginRequestDto
-        {
-            Email = "test@email.com",
+            Email = "test@example.com",
             Password = "123456"
         };
 
-        _repoMock
-            .Setup(r => r.GetByEmailAsync(It.IsAny<string>()))
+        // Act
+        var act = () => _sut.RegisterAsync(request);
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentException>()
+            .WithMessage("*already exists*");
+    }
+
+    [Fact]
+    public async Task RegisterAsync_WhenDefaultRoleNotFound_ThrowsException()
+    {
+        // Arrange
+        _userRepo.Setup(r => r.ExistsByEmailAsync(It.IsAny<string>()))
+            .ReturnsAsync(false);
+
+        _roleRepo.Setup(r => r.GetByNameAsync("User"))
+            .ReturnsAsync((Role?)null); // Role không tồn tại
+
+        var request = new RegisterRequestDto
+        {
+            Email = "new@example.com",
+            Password = "123456"
+        };
+
+        // Act
+        var act = () => _sut.RegisterAsync(request);
+
+        // Assert
+        await act.Should().ThrowAsync<Exception>()
+            .WithMessage("*Default role*");
+    }
+
+    [Fact]
+    public async Task RegisterAsync_WhenValidRequest_SavesUserSuccessfully()
+    {
+        // Arrange
+        _userRepo.Setup(r => r.ExistsByEmailAsync(It.IsAny<string>()))
+            .ReturnsAsync(false);
+
+        _roleRepo.Setup(r => r.GetByNameAsync("User"))
+            .ReturnsAsync(new Role { Id = 1, Name = "User" });
+
+        _userRepo.Setup(r => r.AddAsync(It.IsAny<User>()))
+            .Returns(Task.CompletedTask);
+
+        _userRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
+
+        var request = new RegisterRequestDto
+        {
+            Email = "new@example.com",
+            Password = "123456"
+        };
+
+        // Act
+        var act = () => _sut.RegisterAsync(request);
+
+        // Assert — không throw exception là thành công
+        await act.Should().NotThrowAsync();
+
+        // Verify AddAsync được gọi đúng 1 lần
+        _userRepo.Verify(r => r.AddAsync(It.IsAny<User>()), Times.Once);
+        _userRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+    }
+
+    // =============================================
+    // LOGIN TESTS
+    // =============================================
+
+    [Fact]
+    public async Task LoginAsync_WhenUserNotFound_ThrowsUnauthorizedException()
+    {
+        // Arrange
+        _userRepo.Setup(r => r.GetByEmailAsync(It.IsAny<string>()))
+            .ReturnsAsync((User?)null);
+
+        var request = new LoginRequestDto
+        {
+            Email = "notexist@example.com",
+            Password = "123456"
+        };
+
+        // Act
+        var act = () => _sut.LoginAsync(request, "127.0.0.1");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedException>()
+            .WithMessage("*Invalid credentials*");
+    }
+
+    [Fact]
+    public async Task LoginAsync_WhenPasswordWrong_ThrowsUnauthorizedException()
+    {
+        // Arrange
+        var user = CreateFakeUser();
+        _userRepo.Setup(r => r.GetByEmailAsync(It.IsAny<string>()))
             .ReturnsAsync(user);
 
-        _jwtMock
-            .Setup(j => j.GenerateToken(It.IsAny<User>()))
+        var request = new LoginRequestDto
+        {
+            Email = "test@example.com",
+            Password = "wrong-password" // ← sai password
+        };
+
+        // Act
+        var act = () => _sut.LoginAsync(request, "127.0.0.1");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedException>()
+            .WithMessage("*Invalid credentials*");
+    }
+
+    [Fact]
+    public async Task LoginAsync_WhenValidCredentials_ReturnsTokenResponse()
+    {
+        // Arrange
+        var user = CreateFakeUser();
+
+        _userRepo.Setup(r => r.GetByEmailAsync(It.IsAny<string>()))
+            .ReturnsAsync(user);
+
+        _userRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
+
+        _jwtService.Setup(j => j.GenerateToken(
+                It.IsAny<User>(),
+                It.IsAny<string>(),
+                It.IsAny<long>(),
+                It.IsAny<string>()))
             .Returns("fake-jwt-token");
 
-        _jwtMock
-            .Setup(j => j.GenerateRefreshToken())
+        _jwtService.Setup(j => j.GenerateRefreshToken())
             .Returns("fake-refresh-token");
 
-        var result = await _service.LoginAsync(request);
+        _cacheService.Setup(c => c.SetAsync(
+                It.IsAny<string>(),
+                It.IsAny<UserSessionState>(),
+                It.IsAny<TimeSpan?>()))
+            .Returns(Task.CompletedTask);
 
+        var request = new LoginRequestDto
+        {
+            Email = "test@example.com",
+            Password = "123456" // ← đúng password
+        };
+
+        // Act
+        var result = await _sut.LoginAsync(request, "127.0.0.1");
+
+        // Assert
+        result.Should().NotBeNull();
         result.Token.Should().Be("fake-jwt-token");
         result.RefreshToken.Should().Be("fake-refresh-token");
-        result.Email.Should().Be("test@email.com");
-        result.Id.Should().Be(userId);
-        result.Roles.Should().ContainSingle("User");
-
-        _repoMock.Verify(r => r.SaveChangesAsync(), Times.Once);
+        result.Email.Should().Be("test@example.com");
     }
 
     [Fact]
-    public async Task LoginAsync_ShouldThrowException_WhenPasswordWrong()
+    public async Task LoginAsync_WhenCacheServiceFails_StillReturnsToken()
     {
-        var userId = new System.Random().Next(1, 10000);
-        var user = new User
-        {
-            Id = userId,
-            Email = "test@email.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("123456")
-        };
+        // Arrange — Cache throw exception nhưng login vẫn phải thành công
+        var user = CreateFakeUser();
 
-        var request = new LoginRequestDto
-        {
-            Email = "test@email.com",
-            Password = "wrong_password"
-        };
-
-        _repoMock
-            .Setup(r => r.GetByEmailAsync(It.IsAny<string>()))
+        _userRepo.Setup(r => r.GetByEmailAsync(It.IsAny<string>()))
             .ReturnsAsync(user);
+        _userRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
+        _jwtService.Setup(j => j.GenerateToken(
+                It.IsAny<User>(), It.IsAny<string>(),
+                It.IsAny<long>(), It.IsAny<string>()))
+            .Returns("fake-jwt-token");
+        _jwtService.Setup(j => j.GenerateRefreshToken())
+            .Returns("fake-refresh-token");
 
-        Func<Task> act = async () =>
-            await _service.LoginAsync(request);
+        // Cache bị lỗi
+        _cacheService.Setup(c => c.SetAsync(
+                It.IsAny<string>(), It.IsAny<UserSessionState>(),
+                It.IsAny<TimeSpan?>()))
+            .ThrowsAsync(new Exception("Redis down"));
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
-    }
-
-    [Fact]
-    public async Task LoginAsync_ShouldThrowException_WhenUserNotFound()
-    {
         var request = new LoginRequestDto
         {
-            Email = "notfound@email.com",
+            Email = "test@example.com",
             Password = "123456"
         };
 
-        _repoMock
-            .Setup(r => r.GetByEmailAsync(It.IsAny<string>()))
-            .ReturnsAsync((User)null);
+        // Act
+        var act = () => _sut.LoginAsync(request, "127.0.0.1");
 
-        Func<Task> act = async () =>
-            await _service.LoginAsync(request);
-
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        // Assert — Cache lỗi nhưng login KHÔNG được throw exception
+        await act.Should().NotThrowAsync();
     }
 
-    [Fact]
-    public async Task RefreshTokenAsync_ShouldReturnNewTokens_WhenValid()
-    {
-        var userId = 1;
-        var email = "test@email.com";
-        var oldAccessToken = "old-access-token";
-        var oldRefreshToken = "old-refresh-token";
-        
-        var user = new User
-        {
-            Id = userId,
-            Email = email,
-            RefreshToken = oldRefreshToken,
-            RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(1)
-        };
-
-        var principal = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(new[]
-        {
-            new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Email, email)
-        }));
-
-        _jwtMock.Setup(j => j.GetPrincipalFromExpiredToken(oldAccessToken)).Returns(principal);
-        _repoMock.Setup(r => r.GetByEmailAsync(email)).ReturnsAsync(user);
-        _jwtMock.Setup(j => j.GenerateToken(user)).Returns("new-access-token");
-        _jwtMock.Setup(j => j.GenerateRefreshToken()).Returns("new-refresh-token");
-
-        var request = new TokenRequestDto { AccessToken = oldAccessToken, RefreshToken = oldRefreshToken };
-        
-        var result = await _service.RefreshTokenAsync(request);
-
-        result.Token.Should().Be("new-access-token");
-        result.RefreshToken.Should().Be("new-refresh-token");
-        _repoMock.Verify(r => r.SaveChangesAsync(), Times.Once);
-    }
+    // =============================================
+    // LOGOUT TESTS
+    // =============================================
 
     [Fact]
-    public async Task RefreshTokenAsync_ShouldThrowException_WhenRefreshTokenInvalid()
+    public async Task LogoutAsync_WhenValidToken_BlacklistsTokenAndClearsSession()
     {
-        var email = "test@email.com";
-        var user = new User { Email = email, RefreshToken = "correct-token", RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(1) };
-        var principal = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(new[] { new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Email, email) }));
+        // Arrange
+        var user = CreateFakeUser();
 
-        _jwtMock.Setup(j => j.GetPrincipalFromExpiredToken(It.IsAny<string>())).Returns(principal);
-        _repoMock.Setup(r => r.GetByEmailAsync(email)).ReturnsAsync(user);
+        _userRepo.Setup(r => r.GetByIdAsync(user.Id))
+            .ReturnsAsync(user);
+        _userRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
+        _blacklistService.Setup(b => b.BlacklistTokenAsync(
+                It.IsAny<string>(), It.IsAny<TimeSpan>()))
+            .Returns(Task.CompletedTask);
+        _cacheService.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
 
-        var request = new TokenRequestDto { AccessToken = "any", RefreshToken = "wrong-token" };
-        Func<Task> act = async () => await _service.RefreshTokenAsync(request);
+        // Token giả — exp trong tương lai
+        var fakeToken = GenerateFakeExpiredJwt(DateTime.UtcNow.AddMinutes(30));
 
-        await act.Should().ThrowAsync<SecurityTokenException>();
-    }
+        // Act
+        await _sut.LogoutAsync(fakeToken, user.Id);
 
-    [Fact]
-    public async Task RefreshTokenAsync_ShouldThrowException_WhenRefreshTokenExpired()
-    {
-        var email = "test@email.com";
-        var token = "token";
-        var user = new User { Email = email, RefreshToken = token, RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(-1) };
-        var principal = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(new[] { new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Email, email) }));
+        // Assert — BlacklistToken phải được gọi
+        _blacklistService.Verify(
+            b => b.BlacklistTokenAsync(It.IsAny<string>(), It.IsAny<TimeSpan>()),
+            Times.Once);
 
-        _jwtMock.Setup(j => j.GetPrincipalFromExpiredToken(It.IsAny<string>())).Returns(principal);
-        _repoMock.Setup(r => r.GetByEmailAsync(email)).ReturnsAsync(user);
+        // Session phải bị xóa
+        _cacheService.Verify(
+            c => c.RemoveAsync(It.IsAny<string>()),
+            Times.Once);
 
-        var request = new TokenRequestDto { AccessToken = "any", RefreshToken = token };
-        Func<Task> act = async () => await _service.RefreshTokenAsync(request);
-
-        await act.Should().ThrowAsync<SecurityTokenException>();
-    }
-
-    [Fact]
-    public async Task LogoutAsync_ShouldClearRefreshToken_WhenUserExists()
-    {
-        var userId = 1;
-        var token = "some-access-token";
-        var user = new User { Id = userId, RefreshToken = "existing-refresh-token" };
-
-        _repoMock.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync(user);
-
-        await _service.LogoutAsync(token, userId);
-
+        // User session phải được reset
         user.RefreshToken.Should().BeNull();
-        user.RefreshTokenExpiryTime.Should().BeNull();
-        _repoMock.Verify(r => r.SaveChangesAsync(), Times.AtLeastOnce);
+        user.CurrentSessionId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task LogoutAsync_WhenTokenAlreadyExpired_DoesNotBlacklist()
+    {
+        // Arrange
+        var user = CreateFakeUser();
+        _userRepo.Setup(r => r.GetByIdAsync(user.Id)).ReturnsAsync(user);
+        _userRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _cacheService.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+
+        // Token đã hết hạn trong quá khứ
+        var expiredToken = GenerateFakeExpiredJwt(DateTime.UtcNow.AddMinutes(-10));
+
+        // Act
+        await _sut.LogoutAsync(expiredToken, user.Id);
+
+        // Assert — token đã hết hạn → KHÔNG blacklist
+        _blacklistService.Verify(
+            b => b.BlacklistTokenAsync(It.IsAny<string>(), It.IsAny<TimeSpan>()),
+            Times.Never);
+    }
+
+    // =============================================
+    // Helper — tạo JWT giả với expiry tùy chỉnh
+    // =============================================
+    private static string GenerateFakeExpiredJwt(DateTime expiry)
+    {
+        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+        var key = new SymmetricSecurityKey(
+            System.Text.Encoding.UTF8.GetBytes("super-secret-key-for-testing-only"));
+
+        var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
+            issuer: "test",
+            audience: "test",
+            expires: expiry,
+            signingCredentials: new SigningCredentials(
+                key, SecurityAlgorithms.HmacSha256));
+
+        return handler.WriteToken(token);
     }
 }

@@ -1,0 +1,530 @@
+using Ecommerce.Application.DTOs.Order;
+using Ecommerce.Application.Interfaces;
+using Ecommerce.Application.Services;
+using Ecommerce.Domain.Common.Enums;
+using Ecommerce.Domain.Entities;
+using Ecommerce.Domain.Exceptions;
+using Ecommerce.Domain.Interfaces;
+using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Moq;
+
+public class OrderServiceTests
+{
+    // =============================================
+    // Dependencies mock
+    // =============================================
+    private readonly Mock<IOrderRepository> _orderRepo = new();
+    private readonly Mock<IProductRepository> _productRepo = new();
+    private readonly Mock<IUnitOfWork> _unitOfWork = new();
+    private readonly Mock<ICacheService> _cache = new();
+    private readonly Mock<ILogger<OrderService>> _logger = new();
+    private readonly Mock<IUnitOfWorkTransaction> _transaction = new();
+
+    private readonly OrderService _sut;
+
+    public OrderServiceTests()
+    {
+        // Setup transaction mock — BeginTransactionAsync trả về transaction giả
+        _unitOfWork.Setup(u => u.BeginTransactionAsync())
+            .ReturnsAsync(_transaction.Object);
+        _transaction.Setup(t => t.CommitAsync())
+            .Returns(Task.CompletedTask);
+        _transaction.Setup(t => t.RollbackAsync())
+            .Returns(Task.CompletedTask);
+        _transaction.Setup(t => t.DisposeAsync())
+            .Returns(ValueTask.CompletedTask);
+
+        _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
+
+        _sut = new OrderService(
+            _orderRepo.Object,
+            _productRepo.Object,
+            _unitOfWork.Object,
+            _cache.Object,
+            _logger.Object);
+    }
+
+    // =============================================
+    // Helper
+    // =============================================
+    private static Product CreateFakeProduct(
+        int id = 1,
+        string name = "Product A",
+        int stock = 10,
+        decimal price = 100m)
+        => new()
+        {
+            Id = id,
+            Name = name,
+            Stock = stock,
+            Price = price
+        };
+
+    private static Order CreateFakeOrder(
+        int id = 1,
+        int userId = 1,
+        OrderStatus status = OrderStatus.Pending)
+        => new()
+        {
+            Id = id,
+            UserId = userId,
+            Status = status,
+            CreatedAt = DateTime.UtcNow,
+            Items = new List<OrderItem>
+            {
+                new() { Id = 1, ProductId = 1, Quantity = 2, Price = 100m }
+            }
+        };
+
+    private static CreateOrderRequest CreateFakeRequest(
+        int userId = 1,
+        int productId = 1,
+        int quantity = 2)
+        => new()
+        {
+            UserId = userId,
+            Items = new List<OrderItemRequest>
+            {
+                new() { ProductId = productId, Quantity = quantity }
+            }
+        };
+
+    // =============================================
+    // CREATEORDER TESTS
+    // =============================================
+
+    [Fact]
+    public async Task CreateOrderAsync_WhenItemsEmpty_ThrowsBusinessException()
+    {
+        // Arrange
+        var request = new CreateOrderRequest
+        {
+            UserId = 1,
+            Items = new List<OrderItemRequest>() // ← rỗng
+        };
+
+        // Act
+        var act = () => _sut.CreateOrderAsync(request);
+
+        // Assert
+        await act.Should().ThrowAsync<BusinessException>()
+            .WithMessage("*at least one item*");
+    }
+
+    [Fact]
+    public async Task CreateOrderAsync_WhenItemsNull_ThrowsBusinessException()
+    {
+        // Arrange
+        var request = new CreateOrderRequest
+        {
+            UserId = 1,
+            Items = null! // ← null
+        };
+
+        // Act
+        var act = () => _sut.CreateOrderAsync(request);
+
+        // Assert
+        await act.Should().ThrowAsync<BusinessException>()
+            .WithMessage("*at least one item*");
+    }
+
+    [Fact]
+    public async Task CreateOrderAsync_WhenQuantityZero_ThrowsBusinessException()
+    {
+        // Arrange
+        var request = CreateFakeRequest(quantity: 0); // ← quantity = 0
+
+        _productRepo.Setup(p => p.GetByIdAsync(1))
+            .ReturnsAsync(CreateFakeProduct());
+
+        // Act
+        var act = () => _sut.CreateOrderAsync(request);
+
+        // Assert
+        await act.Should().ThrowAsync<BusinessException>()
+            .WithMessage("*greater than 0*");
+    }
+
+    [Fact]
+    public async Task CreateOrderAsync_WhenProductNotFound_ThrowsBusinessException()
+    {
+        // Arrange
+        var request = CreateFakeRequest();
+
+        // Product không tồn tại
+        _productRepo.Setup(p => p.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync((Product?)null);
+
+        // Act
+        var act = () => _sut.CreateOrderAsync(request);
+
+        // Assert
+        await act.Should().ThrowAsync<BusinessException>()
+            .WithMessage("*not found*");
+    }
+
+    [Fact]
+    public async Task CreateOrderAsync_WhenOutOfStock_ThrowsBusinessException()
+    {
+        // Arrange — stock chỉ có 1 nhưng order 5
+        var request = CreateFakeRequest(quantity: 5);
+        var product = CreateFakeProduct(stock: 1); // ← không đủ
+
+        _productRepo.Setup(p => p.GetByIdAsync(1))
+            .ReturnsAsync(product);
+
+        // Act
+        var act = () => _sut.CreateOrderAsync(request);
+
+        // Assert
+        await act.Should().ThrowAsync<BusinessException>()
+            .WithMessage("*Out of stock*");
+    }
+
+    [Fact]
+    public async Task CreateOrderAsync_WhenValidRequest_DeductsStockAndCreatesOrder()
+    {
+        // Arrange
+        var request = CreateFakeRequest(quantity: 2);
+        var product = CreateFakeProduct(stock: 10); // ← đủ stock
+
+        _productRepo.Setup(p => p.GetByIdAsync(1))
+            .ReturnsAsync(product);
+        _orderRepo.Setup(o => o.AddAsync(It.IsAny<Order>()))
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ReturnsAsync(1L);
+
+        // Act
+        var result = await _sut.CreateOrderAsync(request);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.UserId.Should().Be(1);
+        result.Status.Should().Be("Pending");
+
+        // Stock phải bị trừ đi 2
+        product.Stock.Should().Be(8);
+
+        // Transaction phải được commit
+        _transaction.Verify(t => t.CommitAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateOrderAsync_WhenDuplicateProductIds_GroupsAndDeductsOnce()
+    {
+        // Arrange — cùng 1 product nhưng gửi 2 lần
+        var request = new CreateOrderRequest
+        {
+            UserId = 1,
+            Items = new List<OrderItemRequest>
+            {
+                new() { ProductId = 1, Quantity = 2 },
+                new() { ProductId = 1, Quantity = 3 } // ← cùng product
+            }
+        };
+
+        var product = CreateFakeProduct(stock: 10);
+
+        _productRepo.Setup(p => p.GetByIdAsync(1))
+            .ReturnsAsync(product);
+        _orderRepo.Setup(o => o.AddAsync(It.IsAny<Order>()))
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ReturnsAsync(1L);
+
+        // Act
+        var result = await _sut.CreateOrderAsync(request);
+
+        // Assert — stock bị trừ đúng tổng quantity (2+3=5)
+        product.Stock.Should().Be(5);
+
+        // GetByIdAsync chỉ gọi 1 lần dù có 2 item cùng product
+        _productRepo.Verify(p => p.GetByIdAsync(1), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateOrderAsync_WhenConcurrencyConflict_RollsBackAndThrows()
+    {
+        // Arrange
+        var request = CreateFakeRequest();
+        var product = CreateFakeProduct(stock: 10);
+
+        _productRepo.Setup(p => p.GetByIdAsync(1))
+            .ReturnsAsync(product);
+        _orderRepo.Setup(o => o.AddAsync(It.IsAny<Order>()))
+            .Returns(Task.CompletedTask);
+
+        // SaveChanges throw DbUpdateConcurrencyException
+        _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DbUpdateConcurrencyException());
+
+        // Act
+        var act = () => _sut.CreateOrderAsync(request);
+
+        // Assert
+        await act.Should().ThrowAsync<BusinessException>()
+            .WithMessage("*another process*");
+
+        // Transaction phải bị rollback
+        _transaction.Verify(t => t.RollbackAsync(), Times.Once);
+        _transaction.Verify(t => t.CommitAsync(), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateOrderAsync_WhenCacheFails_StillCreatesOrder()
+    {
+        // Arrange — cache lỗi nhưng order vẫn phải tạo được
+        var request = CreateFakeRequest();
+        var product = CreateFakeProduct(stock: 10);
+
+        _productRepo.Setup(p => p.GetByIdAsync(1))
+            .ReturnsAsync(product);
+        _orderRepo.Setup(o => o.AddAsync(It.IsAny<Order>()))
+            .Returns(Task.CompletedTask);
+
+        // Cache throw exception
+        _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .ThrowsAsync(new Exception("Redis down"));
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ThrowsAsync(new Exception("Redis down"));
+
+        // Act
+        var act = () => _sut.CreateOrderAsync(request);
+
+        // Assert — cache lỗi nhưng KHÔNG throw
+        await act.Should().NotThrowAsync();
+    }
+
+    // =============================================
+    // GETORDERBYID TESTS
+    // =============================================
+
+    [Fact]
+    public async Task GetOrderByIdAsync_WhenOrderExists_ReturnsOrderDto()
+    {
+        // Arrange
+        var order = CreateFakeOrder();
+        _orderRepo.Setup(o => o.GetByIdAsync(1))
+            .ReturnsAsync(order);
+
+        // Act
+        var result = await _sut.GetOrderByIdAsync(1);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.Id.Should().Be(1);
+        result.Status.Should().Be("Pending");
+    }
+
+    [Fact]
+    public async Task GetOrderByIdAsync_WhenOrderNotFound_ReturnsNull()
+    {
+        // Arrange
+        _orderRepo.Setup(o => o.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync((Order?)null);
+
+        // Act
+        var result = await _sut.GetOrderByIdAsync(99);
+
+        // Assert
+        result.Should().BeNull();
+    }
+
+    // =============================================
+    // GETORDERSBYUSERID TESTS
+    // =============================================
+
+    [Fact]
+    public async Task GetOrdersByUserIdAsync_WhenOrdersExist_ReturnsAllOrders()
+    {
+        // Arrange
+        var orders = new List<Order>
+        {
+            CreateFakeOrder(id: 1),
+            CreateFakeOrder(id: 2)
+        };
+
+        _orderRepo.Setup(o => o.GetByUserIdAsync(1))
+            .ReturnsAsync(orders);
+
+        // Act
+        var result = await _sut.GetOrdersByUserIdAsync(1);
+
+        // Assert
+        result.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task GetOrdersByUserIdAsync_WhenNoOrders_ReturnsEmptyList()
+    {
+        // Arrange
+        _orderRepo.Setup(o => o.GetByUserIdAsync(It.IsAny<int>()))
+            .ReturnsAsync(new List<Order>());
+
+        // Act
+        var result = await _sut.GetOrdersByUserIdAsync(99);
+
+        // Assert
+        result.Should().BeEmpty();
+    }
+
+    // =============================================
+    // CANCELORDER TESTS
+    // =============================================
+
+    [Fact]
+    public async Task CancelOrderAsync_WhenOrderNotFound_ThrowsNotFoundException()
+    {
+        // Arrange
+        _orderRepo.Setup(o => o.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync((Order?)null);
+
+        // Act
+        var act = () => _sut.CancelOrderAsync(99, currentUserId: 1);
+
+        // Assert
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*Order 99 not found*");
+    }
+
+    [Fact]
+    public async Task CancelOrderAsync_WhenOrderNotPending_ThrowsBusinessException()
+    {
+        // Arrange — order đã Cancelled rồi
+        var order = CreateFakeOrder(status: OrderStatus.Cancelled);
+        _orderRepo.Setup(o => o.GetByIdAsync(1))
+            .ReturnsAsync(order);
+
+        // Act
+        var act = () => _sut.CancelOrderAsync(1, currentUserId: 1);
+
+        // Assert
+        await act.Should().ThrowAsync<BusinessException>()
+            .WithMessage("*Cannot cancel*");
+    }
+
+    [Fact]
+    public async Task CancelOrderAsync_WhenNotOwner_ThrowsForbiddenException()
+    {
+        var order = CreateFakeOrder(status: OrderStatus.Pending, userId: 10);
+        _orderRepo.Setup(o => o.GetByIdAsync(1))
+            .ReturnsAsync(order);
+
+        var act = () => _sut.CancelOrderAsync(1, currentUserId: 99, canCancelAnyOrder: false);
+
+        await act.Should().ThrowAsync<ForbiddenException>()
+            .WithMessage("*not authorized to cancel*");
+    }
+
+    [Fact]
+    public async Task CancelOrderAsync_WhenAdmin_CanCancelAnotherUsersOrder()
+    {
+        var product = CreateFakeProduct(stock: 8);
+        var order = CreateFakeOrder(status: OrderStatus.Pending, userId: 10);
+
+        _orderRepo.Setup(o => o.GetByIdAsync(1))
+            .ReturnsAsync(order);
+        _productRepo.Setup(p => p.GetByIdAsync(1))
+            .ReturnsAsync(product);
+        _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ReturnsAsync(1L);
+
+        await _sut.CancelOrderAsync(1, currentUserId: 99, canCancelAnyOrder: true);
+
+        order.Status.Should().Be(OrderStatus.Cancelled);
+        _transaction.Verify(t => t.CommitAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task CancelOrderAsync_WhenValidPendingOrder_CancelsAndRestoresStock()
+    {
+        // Arrange
+        var product = CreateFakeProduct(stock: 8);
+        var order = CreateFakeOrder(status: OrderStatus.Pending);
+
+        _orderRepo.Setup(o => o.GetByIdAsync(1))
+            .ReturnsAsync(order);
+        _productRepo.Setup(p => p.GetByIdAsync(1))
+            .ReturnsAsync(product);
+        _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ReturnsAsync(1L);
+
+        // Act
+        await _sut.CancelOrderAsync(1, currentUserId: 1);
+
+        // Assert — status phải là Cancelled
+        order.Status.Should().Be(OrderStatus.Cancelled);
+
+        // Stock phải được hoàn lại (+2)
+        product.Stock.Should().Be(10);
+
+        // Transaction commit
+        _transaction.Verify(t => t.CommitAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task CancelOrderAsync_WhenProductNotFoundDuringRestore_LogsWarningAndContinues()
+    {
+        // Arrange — product bị xóa nhưng cancel order vẫn phải chạy được
+        var order = CreateFakeOrder(status: OrderStatus.Pending);
+
+        _orderRepo.Setup(o => o.GetByIdAsync(1))
+            .ReturnsAsync(order);
+
+        // Product không tìm thấy
+        _productRepo.Setup(p => p.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync((Product?)null);
+
+        _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ReturnsAsync(1L);
+
+        // Act
+        var act = () => _sut.CancelOrderAsync(1, currentUserId: 1);
+
+        // Assert — không throw, chỉ log warning
+        await act.Should().NotThrowAsync();
+        order.Status.Should().Be(OrderStatus.Cancelled);
+    }
+
+    [Fact]
+    public async Task CancelOrderAsync_WhenConcurrencyConflict_RollsBackAndThrows()
+    {
+        // Arrange
+        var order = CreateFakeOrder(status: OrderStatus.Pending);
+        var product = CreateFakeProduct(stock: 8);
+
+        _orderRepo.Setup(o => o.GetByIdAsync(1))
+            .ReturnsAsync(order);
+        _productRepo.Setup(p => p.GetByIdAsync(1))
+            .ReturnsAsync(product);
+
+        // SaveChanges throw concurrency
+        _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DbUpdateConcurrencyException());
+
+        // Act
+        var act = () => _sut.CancelOrderAsync(1, currentUserId: 1);
+
+        // Assert
+        await act.Should().ThrowAsync<BusinessException>()
+            .WithMessage("*tiến trình khác*");
+
+        _transaction.Verify(t => t.RollbackAsync(), Times.Once);
+        _transaction.Verify(t => t.CommitAsync(), Times.Never);
+    }
+}

@@ -10,7 +10,7 @@ public interface IRoleService
 
     Task AssignRoleToUserAsync(int userId, int roleId);
 
-    Task<IReadOnlyList<(int Id, string Name)>> GetRolesAsync();
+    Task<IReadOnlyList<(int Id, string Name, IReadOnlyList<string> Permissions)>> GetRolesAsync();
 
     Task<IReadOnlyList<UserDto>> GetAllUsersWithRolesAsync();
 

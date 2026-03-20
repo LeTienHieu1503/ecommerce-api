@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Ecommerce.Infrastructure.Data;
 using Ecommerce.Domain.Entities;
 using Ecommerce.Domain.Interfaces;
@@ -26,6 +27,13 @@ public class CategoryRepository : ICategoryRepository
     {
         return await _context.Categories
             .FirstOrDefaultAsync(c => c.Id == id && !c.IsDeleted);
+    }
+
+    public async Task<bool> ExistsAsync(Expression<Func<Category, bool>> predicate)
+    {
+        return await _context.Categories
+            .Where(c => !c.IsDeleted)
+            .AnyAsync(predicate);
     }
 
     public async Task AddAsync(Category category)

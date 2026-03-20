@@ -1,201 +1,395 @@
+using System.Linq.Expressions;
+using Ecommerce.Application.Common.Caching;
 using Ecommerce.Application.DTOs.Category;
+using Ecommerce.Application.Interfaces;
 using Ecommerce.Application.Services;
+using Ecommerce.Domain.Common.Pagination;
 using Ecommerce.Domain.Entities;
 using Ecommerce.Domain.Exceptions;
 using Ecommerce.Domain.Interfaces;
-using Ecommerce.Application.Common.Caching;
-using Ecommerce.Domain.Common.Pagination;
-
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
-using Xunit;
 
 public class CategoryServiceTests
 {
-    private readonly Mock<ICategoryRepository> _repositoryMock = new();
-    private readonly Mock<ICacheService> _cacheMock = new();
-    private readonly Mock<ILogger<CategoryService>> _loggerMock = new();
+    // =============================================
+    // Dependencies mock
+    // =============================================
+    private readonly Mock<ICategoryRepository> _categoryRepo = new();
+    private readonly Mock<ILogger<CategoryService>> _logger = new();
+    private readonly Mock<ICacheService> _cache = new();
 
-    private readonly CategoryService _service;
+    // Service thật — inject mock vào
+    private readonly CategoryService _sut;
 
     public CategoryServiceTests()
     {
-        _service = new CategoryService(
-            _repositoryMock.Object,
-            _loggerMock.Object,
-            _cacheMock.Object);
+        _sut = new CategoryService(
+            _categoryRepo.Object,
+            _logger.Object,
+            _cache.Object);
+    }
+
+    // =============================================
+    // Helper — tạo Category giả
+    // =============================================
+    private static Category CreateFakeCategory(int id = 1, string name = "Electronics")
+        => new()
+        {
+            Id = id,
+            Name = name,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+    // Lỗi xảy ra ở đây là vì constructor của PagedResult<CategoryResponseDto> yêu cầu truyền các tham số bắt buộc
+    // (IEnumerable<CategoryResponseDto> items, int totalCount, int page, int pageSize), 
+    // nhưng code hiện tại dùng object initializer mà không có constructor mặc định phù hợp.
+    // Để sửa, cần truyền đủ các tham số cho constructor như sau:
+
+    private static PagedResult<CategoryResponseDto> CreateFakePagedResult()
+        => new(
+            new List<CategoryResponseDto>
+            {
+                new() { Id = 1, Name = "Electronics" }
+            },
+            1, // TotalCount
+            1, // Page
+            10 // PageSize
+        );
+    // =============================================
+    // GETALL TESTS
+    // =============================================
+
+    [Fact]
+    public async Task GetAllAsync_WhenCacheHit_ReturnsCachedResult()
+    {
+        // Arrange
+        var fakeResult = CreateFakePagedResult();
+        var query = new CategoryQuery { Page = 1, PageSize = 10 };
+
+        // Cache version trả về 1
+        _cache.Setup(c => c.GetAsync<long?>(It.IsAny<string>()))
+            .ReturnsAsync(1L);
+
+        // Cache có data → trả về luôn
+        _cache.Setup(c => c.GetAsync<PagedResult<CategoryResponseDto>>(It.IsAny<string>()))
+            .ReturnsAsync(fakeResult);
+
+        // Act
+        var result = await _sut.GetAllAsync(query);
+
+        // Assert
+        result.Should().BeEquivalentTo(fakeResult);
+
+        // Repository KHÔNG được gọi vì có cache
+        _categoryRepo.Verify(r => r.GetQueryable(), Times.Never);
     }
 
     [Fact]
-    public async Task GetAllAsync_ShouldQueryDatabase_WhenCacheMiss()
+    public async Task GetAllAsync_WhenCacheMiss_QueriesRepositoryAndSetsCache()
     {
+        // Arrange
         var query = new CategoryQuery { Page = 1, PageSize = 10 };
-        var categoryId = new System.Random().Next(1, 10000);
 
-        _cacheMock.Setup(c => c.GetAsync<long?>(It.IsAny<string>()))
-            .ReturnsAsync((long?)0);
+        // Cache version trả về 0
+        _cache.Setup(c => c.GetAsync<long?>(It.IsAny<string>()))
+            .ReturnsAsync((long?)null);
 
-        _cacheMock.Setup(c => c.GetAsync<PagedResult<CategoryResponseDto>>(It.IsAny<string>()))
+        // Cache miss — không có data
+        _cache.Setup(c => c.GetAsync<PagedResult<CategoryResponseDto>>(It.IsAny<string>()))
             .ReturnsAsync((PagedResult<CategoryResponseDto>?)null);
 
-        _repositoryMock.Setup(r => r.GetQueryable())
-            .Returns(new List<Category>
-            {
-                new Category{ Id = categoryId, Name = "Phone" }
-            }.AsQueryable());
+        // Repository trả về danh sách category
+        var categories = new List<Category> { CreateFakeCategory() }.AsQueryable();
+        _categoryRepo.Setup(r => r.GetQueryable())
+            .Returns(categories);
 
-        var result = await _service.GetAllAsync(query);
-
-        result.Should().NotBeNull();
-
-        _repositoryMock.Verify(r => r.GetQueryable(), Times.Once);
-    }
-
-    [Fact]
-    public async Task GetAllAsync_ShouldReturnCache_WhenCacheHit()
-    {
-        var query = new CategoryQuery();
-
-        var cached = new PagedResult<CategoryResponseDto>(
-            new List<CategoryResponseDto>(),
-            1,
-            10,
-            0
-        );
-
-        _cacheMock.Setup(c => c.GetAsync<long?>(It.IsAny<string>()))
-            .ReturnsAsync(0);
-
-        _cacheMock.Setup(c => c.GetAsync<PagedResult<CategoryResponseDto>>(It.IsAny<string>()))
-            .ReturnsAsync(cached);
-
-        var result = await _service.GetAllAsync(query);
-
-        result.Should().BeEquivalentTo(cached);
-
-        _repositoryMock.Verify(r => r.GetQueryable(), Times.Never);
-    }
-
-    [Fact]
-    public async Task GetByIdAsync_ShouldReturnCache_WhenCacheExists()
-    {
-        var categoryId = new System.Random().Next(1, 10000);
-        var dto = new CategoryResponseDto { Id = categoryId, Name = "Phone" };
-
-        _cacheMock.Setup(c => c.GetAsync<CategoryResponseDto>(It.IsAny<string>()))
-            .ReturnsAsync(dto);
-
-        var result = await _service.GetByIdAsync(categoryId);
-
-        result.Should().BeEquivalentTo(dto);
-
-        _repositoryMock.Verify(r => r.GetByIdAsync(It.IsAny<int>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task GetByIdAsync_ShouldQueryDatabase_WhenCacheMiss()
-    {
-        var categoryId = new System.Random().Next(1, 10000);
-
-        _cacheMock.Setup(c => c.GetAsync<CategoryResponseDto>(It.IsAny<string>()))
-            .ReturnsAsync((CategoryResponseDto?)null);
-
-        _repositoryMock.Setup(r => r.GetByIdAsync(categoryId))
-            .ReturnsAsync(new Category { Id = categoryId, Name = "Phone" });
-
-        var result = await _service.GetByIdAsync(categoryId);
-
-        result.Name.Should().Be("Phone");
-    }
-
-    [Fact]
-    public async Task GetByIdAsync_ShouldThrowNotFound_WhenCategoryNotExist()
-    {
-        var categoryId = new System.Random().Next(1, 10000);
-
-        _cacheMock.Setup(c => c.GetAsync<CategoryResponseDto>(It.IsAny<string>()))
-            .ReturnsAsync((CategoryResponseDto?)null);
-
-        _repositoryMock.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
-            .ReturnsAsync((Category?)null);
-
-        await Assert.ThrowsAsync<NotFoundException>(() =>
-            _service.GetByIdAsync(categoryId));
-    }
-
-    [Fact]
-    public async Task CreateAsync_ShouldCreateCategory()
-    {
-        var dto = new CreateCategoryDto { Name = "Laptop" };
-
-        _repositoryMock.Setup(r => r.AddAsync(It.IsAny<Category>()))
+        _cache.Setup(c => c.SetAsync(
+                It.IsAny<string>(),
+                It.IsAny<PagedResult<CategoryResponseDto>>(),
+                It.IsAny<TimeSpan?>()))
             .Returns(Task.CompletedTask);
 
-        var result = await _service.CreateAsync(dto);
+        // Act
+        var result = await _sut.GetAllAsync(query);
 
-        result.Name.Should().Be("Laptop");
+        // Assert
+        result.Should().NotBeNull();
+        result.Items.Should().HaveCount(1);
 
-        _repositoryMock.Verify(r => r.AddAsync(It.IsAny<Category>()), Times.Once);
+        // Cache phải được set sau khi query DB
+        _cache.Verify(c => c.SetAsync(
+            It.IsAny<string>(),
+            It.IsAny<PagedResult<CategoryResponseDto>>(),
+            It.IsAny<TimeSpan?>()), Times.Once);
+    }
+
+    // =============================================
+    // GETBYID TESTS
+    // =============================================
+
+    [Fact]
+    public async Task GetByIdAsync_WhenCacheHit_ReturnsCachedCategory()
+    {
+        // Arrange
+        var fakeDto = new CategoryResponseDto { Id = 1, Name = "Electronics" };
+
+        _cache.Setup(c => c.GetAsync<CategoryResponseDto>(It.IsAny<string>()))
+            .ReturnsAsync(fakeDto);
+
+        // Act
+        var result = await _sut.GetByIdAsync(1);
+
+        // Assert
+        result.Should().BeEquivalentTo(fakeDto);
+
+        // Repository KHÔNG được gọi
+        _categoryRepo.Verify(r => r.GetByIdAsync(It.IsAny<int>()), Times.Never);
     }
 
     [Fact]
-    public async Task UpdateAsync_ShouldUpdateCategory()
+    public async Task GetByIdAsync_WhenCacheMiss_QueriesRepositoryAndSetsCache()
     {
-        var categoryId = new System.Random().Next(1, 10000);
-        var category = new Category { Id = categoryId, Name = "Old" };
+        // Arrange
+        var category = CreateFakeCategory();
 
-        _repositoryMock.Setup(r => r.GetByIdAsync(categoryId))
+        _cache.Setup(c => c.GetAsync<CategoryResponseDto>(It.IsAny<string>()))
+            .ReturnsAsync((CategoryResponseDto?)null);
+
+        _categoryRepo.Setup(r => r.GetByIdAsync(1))
             .ReturnsAsync(category);
 
-        var result = await _service.UpdateAsync(categoryId,
-            new UpdateCategoryDto { Name = "New" });
+        _cache.Setup(c => c.SetAsync(
+                It.IsAny<string>(),
+                It.IsAny<CategoryResponseDto>(),
+                It.IsAny<TimeSpan?>()))
+            .Returns(Task.CompletedTask);
 
-        result.Name.Should().Be("New");
+        // Act
+        var result = await _sut.GetByIdAsync(1);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.Name.Should().Be("Electronics");
+
+        // Cache phải được set
+        _cache.Verify(c => c.SetAsync(
+            It.IsAny<string>(),
+            It.IsAny<CategoryResponseDto>(),
+            It.IsAny<TimeSpan?>()), Times.Once);
     }
 
     [Fact]
-    public async Task UpdateAsync_ShouldThrowNotFound_WhenCategoryNotExist()
+    public async Task GetByIdAsync_WhenCategoryNotFound_ThrowsNotFoundException()
     {
-        var categoryId = new System.Random().Next(1, 10000);
+        // Arrange
+        _cache.Setup(c => c.GetAsync<CategoryResponseDto>(It.IsAny<string>()))
+            .ReturnsAsync((CategoryResponseDto?)null);
 
-        _repositoryMock.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
+        _categoryRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
             .ReturnsAsync((Category?)null);
 
-        await Assert.ThrowsAsync<NotFoundException>(() =>
-            _service.UpdateAsync(categoryId, new UpdateCategoryDto { Name = "Test" }));
+        // Act
+        var act = () => _sut.GetByIdAsync(99);
+
+        // Assert
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*Category not found*");
     }
 
+    // =============================================
+    // CREATE TESTS
+    // =============================================
+
     [Fact]
-    public async Task DeleteAsync_ShouldSoftDeleteCategory()
+    public async Task CreateAsync_WhenValidRequest_ReturnsCategoryDto()
     {
-        var categoryId = new System.Random().Next(1, 10000);
-        var category = new Category { Id = categoryId };
+        // Arrange
+        var dto = new CreateCategoryDto { Name = "New Category" };
 
-        _repositoryMock.Setup(r => r.GetByIdAsync(categoryId))
-            .ReturnsAsync(category);
-
-        _repositoryMock.Setup(r => r.HasProductsAsync(categoryId))
+        _categoryRepo.Setup(r => r.ExistsAsync(It.IsAny<Expression<Func<Category, bool>>>()))
             .ReturnsAsync(false);
+        _categoryRepo.Setup(r => r.AddAsync(It.IsAny<Category>()))
+            .Returns(Task.CompletedTask);
+        _categoryRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
 
-        await _service.DeleteAsync(categoryId);
+        // BumpVersion không throw
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ReturnsAsync(1L);
 
-        category.IsDeleted.Should().BeTrue();
+        // Act
+        var result = await _sut.CreateAsync(dto);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.Name.Should().Be("New Category");
+
+        _categoryRepo.Verify(r => r.AddAsync(It.IsAny<Category>()), Times.Once);
+        _categoryRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
     }
 
     [Fact]
-    public async Task DeleteAsync_ShouldThrowBusinessException_WhenHasProducts()
+    public async Task CreateAsync_WhenCacheIncrementFails_StillReturnsResult()
     {
-        var categoryId = new System.Random().Next(1, 10000);
-        var category = new Category { Id = categoryId };
+        // Arrange
+        var dto = new CreateCategoryDto { Name = "New Category" };
 
-        _repositoryMock.Setup(r => r.GetByIdAsync(categoryId))
+        _categoryRepo.Setup(r => r.ExistsAsync(It.IsAny<Expression<Func<Category, bool>>>()))
+            .ReturnsAsync(false);
+        _categoryRepo.Setup(r => r.AddAsync(It.IsAny<Category>()))
+            .Returns(Task.CompletedTask);
+        _categoryRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
+
+        // Cache lỗi — nhưng không được ảnh hưởng kết quả
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ThrowsAsync(new Exception("Redis down"));
+
+        // Act
+        var act = () => _sut.CreateAsync(dto);
+
+        // Assert — Cache lỗi nhưng Create KHÔNG throw
+        await act.Should().NotThrowAsync();
+    }
+
+    // =============================================
+    // UPDATE TESTS
+    // =============================================
+
+    [Fact]
+    public async Task UpdateAsync_WhenCategoryNotFound_ThrowsNotFoundException()
+    {
+        // Arrange
+        _categoryRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync((Category?)null);
+
+        var dto = new UpdateCategoryDto { Name = "Updated" };
+
+        // Act
+        var act = () => _sut.UpdateAsync(99, dto);
+
+        // Assert
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*Category not found*");
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenValidRequest_UpdatesAndInvalidatesCache()
+    {
+        // Arrange
+        var category = CreateFakeCategory();
+        var dto = new UpdateCategoryDto { Name = "Updated Name" };
+
+        _categoryRepo.Setup(r => r.GetByIdAsync(1))
             .ReturnsAsync(category);
+        _categoryRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
 
-        _repositoryMock.Setup(r => r.HasProductsAsync(categoryId))
-            .ReturnsAsync(true);
+        _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ReturnsAsync(1L);
 
-        await Assert.ThrowsAsync<BusinessException>(() =>
-            _service.DeleteAsync(categoryId));
+        // Act
+        var result = await _sut.UpdateAsync(1, dto);
+
+        // Assert
+        result.Name.Should().Be("Updated Name");
+
+        // Cache của category đó phải bị xóa
+        _cache.Verify(c => c.RemoveAsync(It.IsAny<string>()), Times.Once);
+    }
+
+    // =============================================
+    // DELETE TESTS
+    // =============================================
+
+    [Fact]
+    public async Task DeleteAsync_WhenCategoryNotFound_ThrowsNotFoundException()
+    {
+        // Arrange
+        _categoryRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>()))
+            .ReturnsAsync((Category?)null);
+
+        // Act
+        var act = () => _sut.DeleteAsync(99);
+
+        // Assert
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*Category not found*");
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WhenCategoryHasProducts_ThrowsBusinessException()
+    {
+        // Arrange — Fail-Fast: category có products → không cho xóa
+        var category = CreateFakeCategory();
+
+        _categoryRepo.Setup(r => r.GetByIdAsync(1))
+            .ReturnsAsync(category);
+        _categoryRepo.Setup(r => r.HasProductsAsync(1))
+            .ReturnsAsync(true); // ← có products
+
+        // Act
+        var act = () => _sut.DeleteAsync(1);
+
+        // Assert
+        await act.Should().ThrowAsync<BusinessException>()
+            .WithMessage("*Cannot delete*products*");
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WhenValidRequest_SoftDeletesAndInvalidatesCache()
+    {
+        // Arrange
+        var category = CreateFakeCategory();
+
+        _categoryRepo.Setup(r => r.GetByIdAsync(1))
+            .ReturnsAsync(category);
+        _categoryRepo.Setup(r => r.HasProductsAsync(1))
+            .ReturnsAsync(false); // ← không có products
+        _categoryRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ReturnsAsync(1L);
+
+        // Act
+        await _sut.DeleteAsync(1);
+
+        // Assert — Soft delete: IsDeleted = true, không xóa khỏi DB
+        category.IsDeleted.Should().BeTrue();
+        _categoryRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+
+        // Cache phải bị xóa
+        _cache.Verify(c => c.RemoveAsync(It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WhenCacheFails_StillDeletesCategory()
+    {
+        // Arrange
+        var category = CreateFakeCategory();
+
+        _categoryRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(category);
+        _categoryRepo.Setup(r => r.HasProductsAsync(1)).ReturnsAsync(false);
+        _categoryRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+
+        // Cache lỗi
+        _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .ThrowsAsync(new Exception("Redis down"));
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>()))
+            .ThrowsAsync(new Exception("Redis down"));
+
+        // Act
+        var act = () => _sut.DeleteAsync(1);
+
+        // Assert
+        await act.Should().NotThrowAsync();
+        category.IsDeleted.Should().BeTrue();
     }
 }

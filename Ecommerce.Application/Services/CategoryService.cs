@@ -116,6 +116,15 @@ public class CategoryService : ICategoryService
     {
         _logger.LogInformation(LogMessages.CategoryCreating, dto.Name);
 
+        var exists = await _categoryRepository.ExistsAsync(
+            c => c.Name.ToLower() == dto.Name.ToLower());
+
+        if (exists)
+        {
+            _logger.LogWarning(LogMessages.CategoryNameDuplicate, dto.Name);
+            throw new BusinessException("Category name already exists");
+        }
+
         var category = new Category
         {
             Name = dto.Name
@@ -146,7 +155,14 @@ public class CategoryService : ICategoryService
 
         await _categoryRepository.SaveChangesAsync();
 
-        await _cache.RemoveAsync(CacheKeysCategory.Category(id));
+        try
+        {
+            await _cache.RemoveAsync(CacheKeysCategory.Category(id));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to remove cache for Category {CategoryId}", id);
+        }
         await BumpCategoryListVersionAsync();
 
         return CategoryMapper.ToDto(category);
@@ -178,8 +194,15 @@ public class CategoryService : ICategoryService
         category.UpdatedAt = DateTime.UtcNow;
 
         await _categoryRepository.SaveChangesAsync();
-
-        await _cache.RemoveAsync(CacheKeysCategory.Category(id));
+        
+        try
+        {
+            await _cache.RemoveAsync(CacheKeysCategory.Category(id));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to remove cache for Category {CategoryId}", id);
+        }
         await BumpCategoryListVersionAsync();
     }
     private async Task BumpCategoryListVersionAsync()

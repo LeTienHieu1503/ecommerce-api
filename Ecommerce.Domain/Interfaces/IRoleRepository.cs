@@ -8,6 +8,8 @@ namespace Ecommerce.Domain.Interfaces
 
         Task<List<Role>> GetAllAsync();
 
+        Task<List<Role>> GetAllWithPermissionsAsync();
+
         Task AddAsync(Role role);
 
         Task UpdateAsync(Role role);

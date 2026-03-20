@@ -31,8 +31,8 @@ public class AuthService : IAuthService
         ILogger<AuthService> logger,
         IRoleRepository roleRepository,
         ITokenBlacklistService blacklistService,
-        IConfiguration? configuration = null,
-        ICacheService? cacheService = null)
+        IConfiguration configuration,
+        ICacheService cacheService)
     {
         _userRepository = userRepository;
         _jwtTokenService = jwtTokenService;
@@ -87,6 +87,21 @@ public class AuthService : IAuthService
     public async Task<LoginResponseDto> LoginAsync(LoginRequestDto request, string clientIp)
     {
         var email = request.Email.Trim().ToLower();
+        var loginAttemptKey = $"auth:login:attempts:{email}";
+        long attempts;
+        try
+        {
+            attempts = await _cacheService.IncrementAsync(loginAttemptKey, TimeSpan.FromMinutes(15));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not increment login attempts in cache for {Email}", email);
+            attempts = 1;
+        }
+
+        if (attempts > 5)
+            throw new TooManyRequestsException("Too many login attempts. Try again later.");
+
         var user = await _userRepository.GetByEmailAsync(email);
         if (user == null)
             throw new UnauthorizedException("Invalid credentials");
@@ -94,6 +109,9 @@ public class AuthService : IAuthService
         var validPassword = BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash);
         if (!validPassword)
             throw new UnauthorizedException("Invalid credentials");
+
+        // Login thành công, reset số lần thử sai
+        await _cacheService.RemoveAsync(loginAttemptKey);
 
         var fingerprintSecret = _configuration["AuthSecurity:FingerprintSecret"] ?? "fallback-secret";
         var ipHash = IpBindingHelper.ComputeIpHash(clientIp, fingerprintSecret);
@@ -229,6 +247,19 @@ public class AuthService : IAuthService
             session.IpHash);
 
         var newRefreshToken = _jwtTokenService.GenerateRefreshToken();
+
+        // XÓA cache session cũ trước khi đổi refresh token để tránh conflict và đảm bảo session "rotate"
+        if (_cacheService != null)
+        {
+            try
+            {
+                await _cacheService.RemoveAsync(SessionCacheKey(user.Id));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to remove session cache for user {UserId}", user.Id);
+            }
+        }
 
         user.RefreshToken = newRefreshToken;
         user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);

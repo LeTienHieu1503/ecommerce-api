@@ -42,9 +42,10 @@ public class ProductService : IProductService
 
         if (!categoryExists)
         {
-            _logger.LogWarning("Category not found: {CategoryId}", dto.CategoryId);
+            _logger.LogWarning(LogMessages.CategoryNotFound, dto.CategoryId);
             throw new NotFoundException("Category not found");
         }
+
         var product = new Product
         {
             Name = dto.Name,
@@ -56,9 +57,17 @@ public class ProductService : IProductService
         await _productRepository.AddAsync(product);
         await _productRepository.SaveChangesAsync();
 
+        if (product.Id <= 0)
+        {
+            _logger.LogError("Product Id was not assigned after saving. Product: {@Product}", product);
+            throw new BusinessException("Product Id was not assigned after saving.");
+        }
+
         await BumpProductListVersionAsync();
 
-        return await GetByIdAsync(product.Id);
+        var response = ProductMapper.ToDto(product);
+        await _cache.SetAsync(CacheKeysProduct.Product(product.Id), response, TimeSpan.FromMinutes(5));
+        return response;
     }
 
     public async Task<ProductResponseDto> GetByIdAsync(int id)
@@ -102,7 +111,10 @@ public class ProductService : IProductService
             return cached;
         }
 
-        await _productListLock.WaitAsync(TimeSpan.FromSeconds(10));
+        var acquired = await _productListLock.WaitAsync(TimeSpan.FromSeconds(10));
+        if (!acquired)
+            throw new TimeoutException("Could not acquire product list lock.");
+
         try
         {
             cached = await _cache.GetAsync<PagedResult<ProductResponseDto>>(cacheKey);
@@ -200,7 +212,15 @@ public class ProductService : IProductService
             throw new BusinessException("The product was updated by another user. Please refresh and try again.");
         }
 
-        await _cache.RemoveAsync(CacheKeysProduct.Product(id));
+        try
+        {
+            await _cache.RemoveAsync(CacheKeysProduct.Product(id));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to remove cache for Product {ProductId}", id);
+        }
+
         await BumpProductListVersionAsync();
 
         return await GetByIdAsync(id);
@@ -220,7 +240,14 @@ public class ProductService : IProductService
 
         await _productRepository.SaveChangesAsync();
 
-        await _cache.RemoveAsync(CacheKeysProduct.Product(id));
+        try
+        {
+            await _cache.RemoveAsync(CacheKeysProduct.Product(id));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to remove cache for Product {ProductId}", id);
+        }
         await BumpProductListVersionAsync();
     }
 }

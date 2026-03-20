@@ -8,5 +8,6 @@ public interface IOrderService
     Task<OrderDto?> GetOrderByIdAsync(int id);
     Task<IEnumerable<OrderDto>> GetAllOrdersAsync();
     Task<IEnumerable<OrderDto>> GetOrdersByUserIdAsync(int userId);
-    Task CancelOrderAsync(int orderId);
+    /// <param name="canCancelAnyOrder">When true (e.g. Admin), ownership is not enforced.</param>
+    Task CancelOrderAsync(int orderId, int currentUserId, bool canCancelAnyOrder = false);
 }

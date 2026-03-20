@@ -14,6 +14,7 @@ public static class LogMessages
     public const string CategoryCacheMiss = "Cache miss for category {CategoryId}";
     public const string CategoryGetting = "Getting category {CategoryId}";
     public const string CategoryCreating = "Creating category {CategoryName}";
+    public const string CategoryNameDuplicate = "Category name already exists: {CategoryName}";
     public const string CategoryUpdating = "Updating category {CategoryId}";
     public const string CategoryDeleting = "Deleting category {CategoryId}";
     public const string CategoryNotFound = "Category not found {CategoryId}";

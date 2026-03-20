@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Ecommerce.Application.DTOs.Order;
 using Ecommerce.Application.Interfaces;
 using Ecommerce.API.Responses;
@@ -21,7 +22,7 @@ public class OrderController : BaseApiController
     [HttpPost]
     public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest request)
     {
-        var userIdString = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrEmpty(userIdString) || !int.TryParse(userIdString, out int userId))
         {
             return Unauthorized(new ApiResponse<string>(401, false, "Invalid user identifier", null));
@@ -42,7 +43,7 @@ public class OrderController : BaseApiController
         if (order == null)
             return NotFound(new ApiResponse<string>(404, false, "Order not found", null));
 
-        var userIdString = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (!User.IsInRole("Admin"))
         {
             if (string.IsNullOrEmpty(userIdString) || !int.TryParse(userIdString, out int currentUserId) || order.UserId != currentUserId)
@@ -68,7 +69,7 @@ public class OrderController : BaseApiController
     {
         if (!User.IsInRole("Admin"))
         {
-            var currentUserIdString = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var currentUserIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (string.IsNullOrEmpty(currentUserIdString) || !int.TryParse(currentUserIdString, out int currentUserId) || currentUserId != userId)
             {
                 return Forbid();
@@ -79,23 +80,18 @@ public class OrderController : BaseApiController
         return Success(orders);
     }
 
+    [Authorize(Policy = "order.delete")]
     [HttpPut("{id:int}/cancel")]
     public async Task<IActionResult> CancelOrder(int id)
     {
-        var order = await _orderService.GetOrderByIdAsync(id);
-        if (order == null)
-            return NotFound(new ApiResponse<string>(404, false, "Order not found", null));
-
-        if (!User.IsInRole("Admin"))
+        var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdString) || !int.TryParse(userIdString, out int currentUserId))
         {
-            var userIdString = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (string.IsNullOrEmpty(userIdString) || !int.TryParse(userIdString, out int currentUserId) || order.UserId != currentUserId)
-            {
-                return Forbid();
-            }
+            return Unauthorized(new ApiResponse<string>(401, false, "Invalid user identifier", null));
         }
 
-        await _orderService.CancelOrderAsync(id);
+        var canCancelAnyOrder = User.IsInRole("Admin");
+        await _orderService.CancelOrderAsync(id, currentUserId, canCancelAnyOrder);
         return Success<string>(null!, "Order cancelled successfully");
     }
 }

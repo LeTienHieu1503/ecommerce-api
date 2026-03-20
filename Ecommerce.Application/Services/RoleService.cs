@@ -48,10 +48,22 @@ public class RoleService : IRoleService
         await _cacheService.RemoveAsync($"{PermissionsKeyPrefix}{userId}");
     }
 
-    public async Task<IReadOnlyList<(int Id, string Name)>> GetRolesAsync()
+    public async Task<IReadOnlyList<(int Id, string Name, IReadOnlyList<string> Permissions)>> GetRolesAsync()
     {
-        var roles = await _roleRepository.GetAllAsync();
-        return roles.Select(r => (r.Id, r.Name)).ToList();
+        var roles = await _roleRepository.GetAllWithPermissionsAsync();
+
+        return roles
+            .Select(r =>
+                (
+                    r.Id,
+                    r.Name,
+                    (IReadOnlyList<string>)r.RolePermissions
+                        .Where(rp => rp.Permission != null)
+                        .Select(rp => rp.Permission!.Name)
+                        .OrderBy(n => n)
+                        .ToList()
+                )
+            ).ToList();
     }
 
     public async Task<IReadOnlyList<UserDto>> GetAllUsersWithRolesAsync()

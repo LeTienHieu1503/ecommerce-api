@@ -31,7 +31,12 @@ public class RolesController : BaseApiController
     public async Task<IActionResult> GetRoles()
     {
         var roles = await _roleService.GetRolesAsync();
-        var response = roles.Select(r => new { id = r.Id, name = r.Name });
+        var response = roles.Select(r => new
+        {
+            id = r.Id,
+            name = r.Name,
+            permissions = r.Permissions
+        });
         return Success(response);
     }
 

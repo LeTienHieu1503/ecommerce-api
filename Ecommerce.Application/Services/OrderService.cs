@@ -41,7 +41,10 @@ public class OrderService : IOrderService
         if (request.Items == null || request.Items.Count == 0)
             throw new BusinessException("Order must contain at least one item.");
 
-        // Group duplicate items to prevent multiple separate stock checks for the same product
+        var invalidItem = request.Items.FirstOrDefault(x => x.Quantity <= 0);
+        if (invalidItem != null)
+            throw new BusinessException($"Quantity for Product {invalidItem.ProductId} must be greater than 0.");
+
         var groupedItems = request.Items
             .GroupBy(i => i.ProductId)
             .Select(g => new OrderItemRequest
@@ -50,6 +53,10 @@ public class OrderService : IOrderService
                 Quantity = g.Sum(x => x.Quantity)
             })
             .ToList();
+
+        var invalidGrouped = groupedItems.FirstOrDefault(i => i.Quantity <= 0);
+        if (invalidGrouped != null)
+            throw new BusinessException($"Total quantity for Product {invalidGrouped.ProductId} after merge must be greater than 0. Check duplicate order items.");
 
         await using var transaction = await _unitOfWork.BeginTransactionAsync();
 
@@ -65,9 +72,6 @@ public class OrderService : IOrderService
 
             foreach (var itemRequest in groupedItems)
             {
-                if (itemRequest.Quantity <= 0)
-                    throw new BusinessException($"Quantity for Product {itemRequest.ProductId} must be greater than 0.");
-
                 var product = await _productRepo.GetByIdAsync(itemRequest.ProductId);
                 if (product == null)
                     throw new BusinessException($"Product {itemRequest.ProductId} not found.");
@@ -89,7 +93,6 @@ public class OrderService : IOrderService
             await _unitOfWork.SaveChangesAsync();
             await transaction.CommitAsync();
 
-            // Invalidate product cache AFTER commit
             foreach (var item in order.Items)
             {
                 try
@@ -103,7 +106,6 @@ public class OrderService : IOrderService
                 }
             }
 
-            // Bump product list version to invalidate all cached lists
             await BumpProductListVersionAsync();
 
             _logger.LogInformation("Order created successfully | OrderId={OrderId} | CorrelationId={CorrelationId}",
@@ -148,9 +150,11 @@ public class OrderService : IOrderService
         return orders.Select(MapToDto);
     }
 
-    public async Task CancelOrderAsync(int orderId)
+    public async Task CancelOrderAsync(int orderId, int currentUserId, bool canCancelAnyOrder = false)
     {
-        _logger.LogInformation("CancelOrder started | OrderId={OrderId}", orderId);
+        _logger.LogInformation(
+            "CancelOrder started | OrderId={OrderId}, UserId={UserId}, CanCancelAnyOrder={CanCancelAny}",
+            orderId, currentUserId, canCancelAnyOrder);
 
         await using var transaction = await _unitOfWork.BeginTransactionAsync();
 
@@ -158,7 +162,15 @@ public class OrderService : IOrderService
         {
             var order = await _orderRepo.GetByIdAsync(orderId);
             if (order == null)
-                throw new BusinessException("Order not found.");
+                throw new NotFoundException($"Order {orderId} not found.");
+
+            if (!canCancelAnyOrder && order.UserId != currentUserId)
+            {
+                _logger.LogWarning(
+                    "User {UserId} unauthorized to cancel Order {OrderId} (owner={OwnerId})",
+                    currentUserId, orderId, order.UserId);
+                throw new ForbiddenException("You are not authorized to cancel this order.");
+            }
 
             if (order.Status != OrderStatus.Pending)
                 throw new BusinessException($"Cannot cancel order with status '{order.Status}'. Only Pending orders can be cancelled.");
@@ -194,17 +206,26 @@ public class OrderService : IOrderService
                     _logger.LogWarning(cacheEx, "Failed to invalidate cache for Product {ProductId}", item.ProductId);
                 }
             }
-
-            // Bump product list version to invalidate all cached lists
+            
             await BumpProductListVersionAsync();
 
-            _logger.LogInformation("Order cancelled successfully | OrderId={OrderId}", orderId);
+            _logger.LogInformation("Order cancelled successfully | OrderId={OrderId}, UserId={UserId}", orderId, currentUserId);
         }
         catch (DbUpdateConcurrencyException)
         {
             await transaction.RollbackAsync();
-            _logger.LogError("Concurrency conflict during CancelOrder | OrderId={OrderId}", orderId);
-            throw new BusinessException("Order or product was updated by another process. Please retry.");
+            _logger.LogError("Concurrency conflict during CancelOrder | OrderId={OrderId}, UserId={UserId}", orderId, currentUserId);
+            throw new BusinessException("Order hoặc sản phẩm đã được chỉnh sửa bởi tiến trình khác. Vui lòng thử lại.");
+        }
+        catch (NotFoundException)
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+        catch (ForbiddenException)
+        {
+            await transaction.RollbackAsync();
+            throw;
         }
         catch (BusinessException)
         {
@@ -214,7 +235,7 @@ public class OrderService : IOrderService
         catch (Exception ex)
         {
             await transaction.RollbackAsync();
-            _logger.LogError(ex, "CancelOrder failed | OrderId={OrderId}", orderId);
+            _logger.LogError(ex, "CancelOrder failed | OrderId={OrderId}, UserId={UserId}", orderId, currentUserId);
             throw;
         }
     }

@@ -29,6 +29,14 @@ public class RoleRepository : IRoleRepository
             .ToListAsync();
     }
 
+    public async Task<List<Role>> GetAllWithPermissionsAsync()
+    {
+        return await _context.Roles
+            .Include(r => r.RolePermissions)
+            .ThenInclude(rp => rp.Permission)
+            .AsNoTracking()
+            .ToListAsync();
+    }
     public async Task AddAsync(Role role)
     {
         await _context.Roles.AddAsync(role);
