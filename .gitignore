@@ -365,3 +365,29 @@ FodyWeavers.xsd
 
 # Local .NET tools/cache
 .dotnet_home/
+
+# Environment & Secrets
+.env
+.env.*
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json
+
+# Docker
+docker-compose.override.yml
+
+# Cursor IDE
+.cursor/
+.cursorrules
+
+# Test artifacts
+*.http
+test_*.ps1
+dotnet_test.log
+
+# Rider IDE
+.idea/
+
+# macOS
+.DS_Store
+*.slnx
