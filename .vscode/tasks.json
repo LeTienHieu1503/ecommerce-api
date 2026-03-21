@@ -1,0 +1,118 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    // ═══════════════════════════════
+    // 🗄️ MIGRATION
+    // ═══════════════════════════════
+    {
+      "label": "🗄️ EF Add Migration",
+      "type": "shell",
+      "command": "dotnet ef migrations add ${input:migrationName} --project Ecommerce.Infrastructure --startup-project .",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🗄️ EF Update Database",
+      "type": "shell",
+      "command": "dotnet ef database update --project Ecommerce.Infrastructure --startup-project .",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🗄️ EF Remove Last Migration",
+      "type": "shell",
+      "command": "dotnet ef migrations remove --project Ecommerce.Infrastructure --startup-project .",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🗄️ EF List Migrations",
+      "type": "shell",
+      "command": "dotnet ef migrations list --project Ecommerce.Infrastructure --startup-project .",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    // ═══════════════════════════════
+    // 🐳 DOCKER
+    // ═══════════════════════════════
+    {
+      "label": "🐳 Docker Compose Up",
+      "type": "shell",
+      "command": "docker-compose up -d",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🐳 Docker Compose Down",
+      "type": "shell",
+      "command": "docker-compose down",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🐳 Docker Compose Restart",
+      "type": "shell",
+      "command": "docker-compose restart",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🐳 Docker Compose Logs",
+      "type": "shell",
+      "command": "docker-compose logs -f",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "🐳 Docker Compose Build",
+      "type": "shell",
+      "command": "docker-compose build --no-cache",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🐳 Docker PS (List Containers)",
+      "type": "shell",
+      "command": "docker-compose ps",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🐳 Docker Redeploy",
+      "type": "shell",
+      "command": "docker-compose down; docker-compose build --no-cache; docker-compose up -d",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    // ═══════════════════════════════
+    // 🚀 RUN
+    // ═══════════════════════════════
+    {
+      "label": "🔴 Kill API",
+      "type": "shell",
+      "command": "Get-NetTCPConnection -LocalPort 5260 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Write-Host 'API process killed.'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "migrationName",
+      "type": "promptString",
+      "description": "Nhập tên migration (VD: AddUserTable)"
+    }
+  ]
+}

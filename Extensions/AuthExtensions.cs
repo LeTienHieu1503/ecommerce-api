@@ -22,9 +22,7 @@ public static class AuthExtensions
         var jwt = configuration.GetSection("Jwt");
         var jwtKey = jwt["Key"] ?? throw new Exception("JWT Key is missing");
 
-        // =============================================
         // JWT Authentication
-        // =============================================
         services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
@@ -45,9 +43,7 @@ public static class AuthExtensions
                 options.Events = BuildJwtBearerEvents();
             });
 
-        // =============================================
         // Authorization Policies
-        // =============================================
         services.AddAuthorization(options =>
         {
             options.AddPolicy(
@@ -73,9 +69,7 @@ public static class AuthExtensions
         return services;
     }
 
-    // =============================================
-    // Tách riêng để dễ đọc — không làm AddAuthConfig quá dài
-    // =============================================
+    // Build JwtBearerEvents
     private static JwtBearerEvents BuildJwtBearerEvents()
     {
         return new JwtBearerEvents

@@ -14,21 +14,15 @@ public static class InfrastructureExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // =============================================
         // Database
-        // =============================================
         services.AddDbContext<ApplicationDbContext>(options =>
             options.UseSqlServer(
                 configuration.GetConnectionString("DefaultConnection")));
 
-        // =============================================
         // Cache
-        // =============================================
         services.AddCacheServices(configuration);
 
-        // =============================================
         // Repositories
-        // =============================================
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<IProductRepository, ProductRepository>();
@@ -42,9 +36,7 @@ public static class InfrastructureExtensions
         return services;
     }
 
-    // =============================================
-    // Tách riêng cache logic
-    // =============================================
+    // Cache Services
     private static IServiceCollection AddCacheServices(
         this IServiceCollection services,
         IConfiguration configuration)

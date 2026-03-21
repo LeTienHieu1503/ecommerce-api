@@ -8,9 +8,7 @@ using Serilog.Context;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// =============================================
 // Logging
-// =============================================
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
     .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
@@ -25,9 +23,7 @@ Log.Logger = new LoggerConfiguration()
 
 builder.Host.UseSerilog();
 
-// =============================================
-// Services — mỗi dòng rõ ràng, dễ đọc
-// =============================================
+// Services
 builder.Services
     .AddInfrastructure(builder.Configuration)
     .AddApplicationServices()
@@ -59,9 +55,7 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
     };
 });
 
-// =============================================
 // Middleware Pipeline
-// =============================================
 var app = builder.Build();
 
 app.UseSwaggerConfig();
@@ -90,9 +84,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
-// =============================================
 // Database Migration + Seed
-// =============================================
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
