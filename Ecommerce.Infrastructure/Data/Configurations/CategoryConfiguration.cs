@@ -13,7 +13,7 @@ namespace Ecommerce.API.Configurations
             builder.HasKey(c => c.Id);
 
             builder.Property(c => c.CreatedAt)
-                .HasDefaultValueSql("GETUTCDATE()");
+                .HasDefaultValueSql("now()");
 
             builder.Property(c => c.Name)
                 .IsRequired()

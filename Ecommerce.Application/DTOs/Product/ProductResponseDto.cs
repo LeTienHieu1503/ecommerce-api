@@ -14,8 +14,6 @@ public class ProductResponseDto
 
     public int Stock { get; set; }
 
-    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-
     public DateTime CreatedAt { get; set; }
 
     public DateTime? UpdatedAt { get; set; }

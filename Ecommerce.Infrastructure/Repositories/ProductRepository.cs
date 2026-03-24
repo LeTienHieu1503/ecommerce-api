@@ -42,11 +42,6 @@ public class ProductRepository : IProductRepository
             .AnyAsync(c => c.Id == categoryId && !c.IsDeleted);
     }
 
-    public void UpdateConcurrencyToken(Product product, byte[] rowVersion)
-    {
-        _context.Entry(product).Property(p => p.RowVersion).OriginalValue = rowVersion;
-    }
-
     public async Task SaveChangesAsync()
     {
         await _context.SaveChangesAsync();

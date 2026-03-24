@@ -167,7 +167,6 @@ public class ProductService : IProductService
                 CategoryId = p.CategoryId,
                 CategoryName = p.Category.Name,
                 Stock = p.Stock,
-                RowVersion = p.RowVersion,
                 CreatedAt = p.CreatedAt,
                 UpdatedAt = p.UpdatedAt
             });
@@ -215,9 +214,6 @@ public class ProductService : IProductService
         product.CategoryId = dto.CategoryId;
         product.Stock = dto.Stock;
         product.UpdatedAt = DateTime.UtcNow;
-
-        // Apply concurrency token
-        _productRepository.UpdateConcurrencyToken(product, dto.RowVersion);
 
         try
         {

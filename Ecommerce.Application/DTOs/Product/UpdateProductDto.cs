@@ -16,7 +16,4 @@ public class UpdateProductDto
 
     [Range(0, int.MaxValue, ErrorMessage = "Stock cannot be negative")]
     public int Stock { get; set; }
-
-    [Required(ErrorMessage = "RowVersion is required for concurrency control")]
-    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 }

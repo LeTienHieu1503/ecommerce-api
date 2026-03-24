@@ -5,6 +5,14 @@ namespace Ecommerce.Infrastructure.Data;
 
 public static class AdminSeeder
 {
+    /// <summary>
+    /// Must stay lowercase: <see cref="Ecommerce.Application.Services.AuthService.LoginAsync"/> normalizes email with ToLower().
+    /// </summary>
+    private const string AdminEmail = "admin";
+
+    /// <summary>Legacy seed used mixed case; existing DBs would get 401 on login until normalized.</summary>
+    private const string LegacyAdminEmail = "Admin";
+
     public static async Task SeedAdminAsync(ApplicationDbContext context)
     {
         var userRole = await context.Roles
@@ -35,16 +43,26 @@ public static class AdminSeeder
             await context.SaveChangesAsync();
         }
 
+        var legacyAdmin = await context.Users
+            .Include(u => u.UserRoles)
+            .FirstOrDefaultAsync(u => u.Email == LegacyAdminEmail);
+
+        if (legacyAdmin != null)
+        {
+            legacyAdmin.Email = AdminEmail;
+            await context.SaveChangesAsync();
+        }
+
         var adminUser = await context.Users
             .Include(u => u.UserRoles)
-            .FirstOrDefaultAsync(u => u.Email == "Admin");
+            .FirstOrDefaultAsync(u => u.Email == AdminEmail);
 
         if (adminUser != null)
             return;
 
         var user = new User
         {
-            Email = "Admin",
+            Email = AdminEmail,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("123456")
         };
 

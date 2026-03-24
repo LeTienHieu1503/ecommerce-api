@@ -15,7 +15,6 @@ public static class ProductMapper
             CategoryId = product.CategoryId,
             CategoryName = product.Category?.Name,
             Stock = product.Stock,
-            RowVersion = product.RowVersion,
             CreatedAt = product.CreatedAt,
             UpdatedAt = product.UpdatedAt
         };

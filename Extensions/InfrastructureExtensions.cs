@@ -16,7 +16,7 @@ public static class InfrastructureExtensions
     {
         // Database
         services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseSqlServer(
+            options.UseNpgsql(
                 configuration.GetConnectionString("DefaultConnection")));
 
         // Cache

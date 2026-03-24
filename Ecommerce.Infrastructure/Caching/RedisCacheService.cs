@@ -1,6 +1,5 @@
 using Ecommerce.Application.Interfaces;
 using Microsoft.Extensions.Caching.Distributed;
-using Microsoft.Extensions.Configuration;
 using StackExchange.Redis;
 using System.Text.Json;
 using System.Collections.Concurrent;
@@ -10,47 +9,7 @@ namespace Ecommerce.Infrastructure.Caching;
 public class RedisCacheService : ICacheService
 {
     private readonly IDistributedCache _cache;
-    private readonly IConnectionMultiplexer? _multiplexer;
-    private readonly string _prefix;
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> KeyLocks = new();
-    private const string IncrementScript = """
-        local key = KEYS[1]
-        local ttlSeconds = tonumber(ARGV[1])
-        local fallbackBase = tonumber(ARGV[2]) or 0
-
-        local current = redis.call('GET', key)
-        local exists = current ~= false
-
-        if not exists then
-          local v = redis.call('INCR', key)
-          if ttlSeconds and ttlSeconds > 0 then
-            redis.call('EXPIRE', key, ttlSeconds)
-          end
-          return v
-        end
-
-        local num = tonumber(current)
-        if not num then
-          local unquoted = string.match(current, '^"(%-?%d+)"$')
-          if unquoted then
-            num = tonumber(unquoted)
-          end
-        end
-
-        if not num then
-          num = fallbackBase
-        end
-
-        redis.call('SET', key, tostring(math.floor(num)))
-        local nextVal = redis.call('INCR', key)
-
-        local ttl = redis.call('TTL', key)
-        if ttl == -1 and ttlSeconds and ttlSeconds > 0 then
-          redis.call('EXPIRE', key, ttlSeconds)
-        end
-
-        return nextVal
-        """;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -58,14 +17,14 @@ public class RedisCacheService : ICacheService
         PropertyNameCaseInsensitive = true
     };
 
-    public RedisCacheService(
-        IDistributedCache cache,
-        IConnectionMultiplexer? multiplexer,
-        IConfiguration configuration)
+    /// <summary>
+    /// StackExchange Redis <see cref="IDistributedCache"/> stores each entry as a Redis <b>hash</b> (fields absexp, sldexp, data).
+    /// Raw <c>INCR</c> on the same key creates a <b>string</b> key → WRONGTYPE on read, version key gets deleted, list cache never invalidates.
+    /// Increment must go through <see cref="IDistributedCache"/> only.
+    /// </summary>
+    public RedisCacheService(IDistributedCache cache)
     {
         _cache = cache;
-        _multiplexer = multiplexer;
-        _prefix = configuration["Redis:InstanceName"] ?? string.Empty;
     }
 
     public async Task<T?> GetAsync<T>(string key)
@@ -87,8 +46,22 @@ public class RedisCacheService : ICacheService
         if (string.IsNullOrEmpty(cached))
             return default;
 
-        return JsonSerializer.Deserialize<T>(cached, JsonOptions);
+        try
+        {
+            return JsonSerializer.Deserialize<T>(cached, JsonOptions);
+        }
+        catch (JsonException) when (TryParseLong(cached, out var n))
+        {
+            if (typeof(T) == typeof(long))
+                return (T)(object)n;
+            if (typeof(T) == typeof(long?))
+                return (T)(object)(long?)n;
+            throw;
+        }
     }
+
+    private static bool TryParseLong(string s, out long value)
+        => long.TryParse(s.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out value);
 
     public async Task SetAsync<T>(string key, T value, TimeSpan? expiry = null)
     {
@@ -102,31 +75,15 @@ public class RedisCacheService : ICacheService
         await _cache.SetStringAsync(key, json, options);
     }
 
-    public async Task<long> IncrementAsync(string key, TimeSpan? expiry = null)
-    {
-        if (_multiplexer is null)
-            return await IncrementWithoutRedisAsync(key, expiry);
-
-        var db = _multiplexer.GetDatabase();
-        var fullKey = _prefix + key;
-        var ttl = expiry ?? TimeSpan.FromDays(1);
-        var ttlSeconds = ttl > TimeSpan.Zero ? (long)Math.Ceiling(ttl.TotalSeconds) : 0;
-        var fallbackBase = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-        var result = await db.ScriptEvaluateAsync(
-            IncrementScript,
-            new RedisKey[] { fullKey },
-            new RedisValue[] { ttlSeconds, fallbackBase });
-
-        return (long)result;
-    }
+    public Task<long> IncrementAsync(string key, TimeSpan? expiry = null)
+        => IncrementViaDistributedCacheAsync(key, expiry);
 
     public async Task RemoveAsync(string key)
     {
         await _cache.RemoveAsync(key);
     }
 
-    private async Task<long> IncrementWithoutRedisAsync(string key, TimeSpan? expiry)
+    private async Task<long> IncrementViaDistributedCacheAsync(string key, TimeSpan? expiry)
     {
         var keyLock = KeyLocks.GetOrAdd(key, static _ => new SemaphoreSlim(1, 1));
         await keyLock.WaitAsync();

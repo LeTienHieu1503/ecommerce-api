@@ -75,7 +75,6 @@ public class OrderServiceTests
             UserId = userId,
             Status = status,
             CreatedAt = createdAt ?? DateTime.UtcNow,
-            RowVersion = [1],
             Items = new List<OrderItem>
             {
                 new() { Id = id * 10 + 1, OrderId = id, ProductId = 1, Quantity = 2, Price = 100m }
@@ -625,7 +624,7 @@ public class OrderServiceTests
 
         // Assert
         await act.Should().ThrowAsync<BusinessException>()
-            .WithMessage("*tiến trình khác*");
+            .WithMessage("*another process*");
 
         _transaction.Verify(t => t.RollbackAsync(), Times.Once);
         _transaction.Verify(t => t.CommitAsync(), Times.Never);

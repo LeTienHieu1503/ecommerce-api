@@ -19,7 +19,5 @@ namespace Ecommerce.Domain.Entities
         public DateTime? UpdatedAt { get; set; }
 
         public bool IsDeleted { get; set; }
-
-        public byte[] RowVersion { get; set; } = null!;
     }
 }

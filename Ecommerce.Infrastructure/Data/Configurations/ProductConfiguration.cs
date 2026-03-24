@@ -23,7 +23,7 @@ namespace Ecommerce.API.Configurations
                 .IsRequired();
 
             builder.Property(p => p.CreatedAt)
-                .HasDefaultValueSql("GETUTCDATE()");
+                .HasDefaultValueSql("now()");
 
             builder.HasIndex(p => p.Name);
 
@@ -35,8 +35,7 @@ namespace Ecommerce.API.Configurations
                 .IsRequired()
                 .HasDefaultValue(0);
 
-            builder.Property(p => p.RowVersion)
-                .IsRowVersion();
+            builder.UseXminAsConcurrencyToken();
 
             builder.HasIndex(p => new { p.CategoryId, p.Id });
 

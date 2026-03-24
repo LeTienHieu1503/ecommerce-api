@@ -47,7 +47,6 @@ public class ProductServiceTests
             Stock = stock,
             CategoryId = categoryId,
             Category = new Category { Id = categoryId, Name = "Electronics" },
-            RowVersion = new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 },
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -114,6 +113,7 @@ public class ProductServiceTests
         _productRepo.Setup(r => r.CategoryExistsAsync(1))
             .ReturnsAsync(true);
         _productRepo.Setup(r => r.AddAsync(It.IsAny<Product>()))
+            .Callback<Product>(p => p.Id = savedProduct.Id)
             .Returns(Task.CompletedTask);
         _productRepo.Setup(r => r.SaveChangesAsync())
             .Returns(Task.CompletedTask);
@@ -136,7 +136,7 @@ public class ProductServiceTests
 
         // Assert
         result.Should().NotBeNull();
-        result.Name.Should().Be("Product A");
+        result.Name.Should().Be("New Product");
 
         _productRepo.Verify(r => r.AddAsync(It.IsAny<Product>()), Times.Once);
         _productRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
@@ -157,6 +157,7 @@ public class ProductServiceTests
         _productRepo.Setup(r => r.CategoryExistsAsync(1))
             .ReturnsAsync(true);
         _productRepo.Setup(r => r.AddAsync(It.IsAny<Product>()))
+            .Callback<Product>(p => p.Id = 1)
             .Returns(Task.CompletedTask);
         _productRepo.Setup(r => r.SaveChangesAsync())
             .Returns(Task.CompletedTask);
@@ -334,8 +335,7 @@ public class ProductServiceTests
             Name = "Updated",
             Price = 200m,
             CategoryId = 1,
-            Stock = 5,
-            RowVersion = new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }
+            Stock = 5
         };
 
         // Act
@@ -362,8 +362,7 @@ public class ProductServiceTests
             Name = "Updated",
             Price = 200m,
             CategoryId = 99,
-            Stock = 5,
-            RowVersion = new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }
+            Stock = 5
         };
 
         // Act
@@ -386,8 +385,7 @@ public class ProductServiceTests
             Name = "Updated Product",
             Price = 200m,
             CategoryId = 1,
-            Stock = 8,
-            RowVersion = new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }
+            Stock = 8
         };
 
         _productRepo.SetupSequence(r => r.GetByIdAsync(1))
@@ -395,9 +393,6 @@ public class ProductServiceTests
             .ReturnsAsync(updatedProduct); // ← lần gọi 2: lấy product đã update
         _productRepo.Setup(r => r.CategoryExistsAsync(1))
             .ReturnsAsync(true);
-        _productRepo.Setup(r => r.UpdateConcurrencyToken(
-                It.IsAny<Product>(), It.IsAny<byte[]>()))
-            .Verifiable();
         _productRepo.Setup(r => r.SaveChangesAsync())
             .Returns(Task.CompletedTask);
 
@@ -427,10 +422,6 @@ public class ProductServiceTests
 
         // Cache phải bị xóa
         _cache.Verify(c => c.RemoveAsync(It.IsAny<string>()), Times.Once);
-
-        // ConcurrencyToken phải được apply
-        _productRepo.Verify(r => r.UpdateConcurrencyToken(
-            It.IsAny<Product>(), It.IsAny<byte[]>()), Times.Once);
     }
 
     [Fact]
@@ -443,9 +434,6 @@ public class ProductServiceTests
             .ReturnsAsync(product);
         _productRepo.Setup(r => r.CategoryExistsAsync(1))
             .ReturnsAsync(true);
-        _productRepo.Setup(r => r.UpdateConcurrencyToken(
-                It.IsAny<Product>(), It.IsAny<byte[]>()))
-            .Verifiable();
 
         // SaveChanges throw concurrency
         _productRepo.Setup(r => r.SaveChangesAsync())
@@ -456,8 +444,7 @@ public class ProductServiceTests
             Name = "Updated",
             Price = 200m,
             CategoryId = 1,
-            Stock = 5,
-            RowVersion = new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }
+            Stock = 5
         };
 
         // Act

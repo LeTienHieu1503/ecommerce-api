@@ -17,7 +17,7 @@ namespace Ecommerce.API.Configurations
                 .HasMaxLength(100);
 
             builder.Property(r => r.CreatedAt)
-                .HasDefaultValueSql("GETUTCDATE()");
+                .HasDefaultValueSql("now()");
 
             builder.HasIndex(r => r.Name)
                 .IsUnique();

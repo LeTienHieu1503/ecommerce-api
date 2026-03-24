@@ -18,14 +18,13 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
 
         builder.Property(o => o.CreatedAt)
             .IsRequired()
-            .HasDefaultValueSql("GETUTCDATE()");
+            .HasDefaultValueSql("now()");
 
         builder.Property(o => o.Status)
             .IsRequired()
             .HasConversion<int>();
 
-        builder.Property(o => o.RowVersion)
-            .IsRowVersion();
+        builder.UseXminAsConcurrencyToken();
 
         builder.HasMany(o => o.Items)
             .WithOne(i => i.Order)
