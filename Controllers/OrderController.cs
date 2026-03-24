@@ -56,10 +56,10 @@ public class OrderController : BaseApiController
 
     [Authorize(Policy = Authorization.Policies.AuthorizationPolicies.AdminOnly)]
     [HttpGet]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll([FromQuery] OrderQuery query)
     {
-        var orders = await _orderService.GetAllOrdersAsync();
-        return Success(orders);
+        var result = await _orderService.GetAllOrdersAsync(query);
+        return Success(result);
     }
 
     [Authorize(Policy = "order.read")]

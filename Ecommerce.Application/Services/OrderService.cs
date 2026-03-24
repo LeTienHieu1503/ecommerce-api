@@ -2,8 +2,10 @@ using Ecommerce.Domain.Entities;
 using Ecommerce.Domain.Interfaces;
 using Ecommerce.Domain.Exceptions;
 using Ecommerce.Domain.Common.Enums;
+using Ecommerce.Domain.Common.Pagination;
 using Ecommerce.Application.Interfaces;
 using Ecommerce.Application.DTOs.Order;
+using Ecommerce.Application.Common.Sorting;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using Ecommerce.Application.Common.Caching;
@@ -182,10 +184,62 @@ public class OrderService : IOrderService
         return orders.Select(MapToDto);
     }
 
-    public async Task<IEnumerable<OrderDto>> GetAllOrdersAsync()
+    public async Task<PagedResult<OrderDto>> GetAllOrdersAsync(OrderQuery query)
     {
-        var orders = await _orderRepo.GetAllAsync();
-        return orders.Select(MapToDto);
+        var orders = _orderRepo.GetQueryable();
+
+        if (query.Status.HasValue)
+            orders = orders.Where(o => o.Status == query.Status.Value);
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var term = query.Search.Trim();
+            if (int.TryParse(term, out var n))
+                orders = orders.Where(o => o.Id == n || o.UserId == n);
+            else if (Enum.TryParse<OrderStatus>(term, true, out var st))
+                orders = orders.Where(o => o.Status == st);
+            else
+                orders = orders.Where(o => o.Status.ToString().Contains(term));
+        }
+
+        var sortField = NormalizeOrderSortField(query.SortBy);
+        if (sortField != null)
+            orders = orders.ApplySorting(sortField, query.SortOrder);
+        else
+            orders = orders.OrderByDescending(o => o.CreatedAt);
+
+        var dtoQuery = orders.Select(o => new OrderDto
+        {
+            Id = o.Id,
+            UserId = o.UserId,
+            CreatedAt = o.CreatedAt,
+            Status = o.Status.ToString(),
+            Items = o.Items.Select(i => new OrderItemDto
+            {
+                Id = i.Id,
+                ProductId = i.ProductId,
+                Quantity = i.Quantity,
+                Price = i.Price
+            }).ToList()
+        });
+
+        return await dtoQuery.ToPagedResultAsync(query.Page, query.PageSize);
+    }
+
+    /// <summary>Maps client sort field to a safe property name for Dynamic LINQ (whitelist).</summary>
+    private static string? NormalizeOrderSortField(string? sortBy)
+    {
+        if (string.IsNullOrWhiteSpace(sortBy))
+            return null;
+
+        return sortBy.Trim().ToLowerInvariant() switch
+        {
+            "id" => "Id",
+            "userid" => "UserId",
+            "createdat" => "CreatedAt",
+            "status" => "Status",
+            _ => null
+        };
     }
 
     public async Task CancelOrderAsync(int orderId, int currentUserId, bool canCancelAnyOrder = false)

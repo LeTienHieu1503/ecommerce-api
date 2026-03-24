@@ -14,6 +14,8 @@ public class OrderRepository : IOrderRepository
         _context = context;
     }
 
+    public IQueryable<Order> GetQueryable() => _context.Orders.AsQueryable();
+
     public async Task AddAsync(Order order)
     {
         await _context.Orders.AddAsync(order);

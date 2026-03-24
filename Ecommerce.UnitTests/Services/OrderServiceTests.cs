@@ -9,6 +9,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
+using Ecommerce.Domain.Common.Pagination;
 
 public class OrderServiceTests
 {
@@ -66,16 +67,18 @@ public class OrderServiceTests
     private static Order CreateFakeOrder(
         int id = 1,
         int userId = 1,
-        OrderStatus status = OrderStatus.Pending)
+        OrderStatus status = OrderStatus.Pending,
+        DateTime? createdAt = null)
         => new()
         {
             Id = id,
             UserId = userId,
             Status = status,
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = createdAt ?? DateTime.UtcNow,
+            RowVersion = [1],
             Items = new List<OrderItem>
             {
-                new() { Id = 1, ProductId = 1, Quantity = 2, Price = 100m }
+                new() { Id = id * 10 + 1, OrderId = id, ProductId = 1, Quantity = 2, Price = 100m }
             }
         };
 
@@ -337,6 +340,106 @@ public class OrderServiceTests
 
         // Assert
         result.Should().BeNull();
+    }
+
+    // =============================================
+    // GETALLORDERS (paged / search / sort)
+    // =============================================
+
+    [Fact]
+    public async Task GetAllOrdersAsync_WithPaging_ReturnsCorrectSliceAndTotal()
+    {
+        var orders = new List<Order>
+        {
+            CreateFakeOrder(1, createdAt: new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)),
+            CreateFakeOrder(2, createdAt: new DateTime(2024, 1, 2, 0, 0, 0, DateTimeKind.Utc)),
+            CreateFakeOrder(3, createdAt: new DateTime(2024, 1, 3, 0, 0, 0, DateTimeKind.Utc))
+        };
+        _orderRepo.Setup(o => o.GetQueryable()).Returns(orders.AsQueryable());
+
+        var result = await _sut.GetAllOrdersAsync(new OrderQuery { Page = 1, PageSize = 2 });
+
+        result.TotalCount.Should().Be(3);
+        result.Items.Should().HaveCount(2);
+        result.Page.Should().Be(1);
+        result.PageSize.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task GetAllOrdersAsync_SearchNumeric_FiltersByOrderIdOrUserId()
+    {
+        var orders = new List<Order>
+        {
+            CreateFakeOrder(1, userId: 10),
+            CreateFakeOrder(2, userId: 20),
+            CreateFakeOrder(3, userId: 10)
+        };
+        _orderRepo.Setup(o => o.GetQueryable()).Returns(orders.AsQueryable());
+
+        var byOrderId = await _sut.GetAllOrdersAsync(new OrderQuery { Search = "2", PageSize = 20 });
+        byOrderId.TotalCount.Should().Be(1);
+        byOrderId.Items.Single().Id.Should().Be(2);
+
+        var byUserId = await _sut.GetAllOrdersAsync(new OrderQuery { Search = "10", PageSize = 20 });
+        byUserId.TotalCount.Should().Be(2);
+        byUserId.Items.Select(x => x.Id).Should().BeEquivalentTo([1, 3]);
+    }
+
+    [Fact]
+    public async Task GetAllOrdersAsync_SearchStatusName_FiltersOrders()
+    {
+        var orders = new List<Order>
+        {
+            CreateFakeOrder(1, status: OrderStatus.Pending),
+            CreateFakeOrder(2, status: OrderStatus.Paid)
+        };
+        _orderRepo.Setup(o => o.GetQueryable()).Returns(orders.AsQueryable());
+
+        var result = await _sut.GetAllOrdersAsync(new OrderQuery { Search = "Paid", PageSize = 20 });
+
+        result.TotalCount.Should().Be(1);
+        result.Items.Single().Status.Should().Be("Paid");
+    }
+
+    [Fact]
+    public async Task GetAllOrdersAsync_StatusFilter_CombinesWithQuery()
+    {
+        var orders = new List<Order>
+        {
+            CreateFakeOrder(1, status: OrderStatus.Pending),
+            CreateFakeOrder(2, status: OrderStatus.Paid)
+        };
+        _orderRepo.Setup(o => o.GetQueryable()).Returns(orders.AsQueryable());
+
+        var result = await _sut.GetAllOrdersAsync(new OrderQuery
+        {
+            Status = OrderStatus.Pending,
+            PageSize = 20
+        });
+
+        result.TotalCount.Should().Be(1);
+        result.Items.Single().Id.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GetAllOrdersAsync_SortByIdAscending_OrdersCorrectly()
+    {
+        var orders = new List<Order>
+        {
+            CreateFakeOrder(3, createdAt: new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)),
+            CreateFakeOrder(1, createdAt: new DateTime(2024, 1, 3, 0, 0, 0, DateTimeKind.Utc)),
+            CreateFakeOrder(2, createdAt: new DateTime(2024, 1, 2, 0, 0, 0, DateTimeKind.Utc))
+        };
+        _orderRepo.Setup(o => o.GetQueryable()).Returns(orders.AsQueryable());
+
+        var result = await _sut.GetAllOrdersAsync(new OrderQuery
+        {
+            SortBy = "id",
+            SortOrder = "asc",
+            PageSize = 10
+        });
+
+        result.Items.Select(x => x.Id).Should().ContainInOrder(1, 2, 3);
     }
 
     // =============================================
