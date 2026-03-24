@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using Ecommerce.Application.Common.Caching;
 using Ecommerce.Application.Common.Logging;
+using System.Collections.Concurrent;
 
 namespace Ecommerce.Application.Services;
 
@@ -20,6 +21,7 @@ public class ProductService : IProductService
     private readonly ICacheService _cache;
 
     private static readonly SemaphoreSlim _productListLock = new SemaphoreSlim(1, 1);
+    private static readonly ConcurrentDictionary<int, SemaphoreSlim> _productByIdLocks = new();
 
     public ProductService(
         IProductRepository productRepository,
@@ -75,28 +77,43 @@ public class ProductService : IProductService
         var cacheKey = CacheKeysProduct.Product(id);
 
         var cached = await _cache.GetAsync<ProductResponseDto>(cacheKey);
-
         if (cached != null)
         {
             _logger.LogInformation(LogMessages.ProductCacheHit, id);
             return cached;
         }
 
-        _logger.LogInformation(LogMessages.ProductCacheMiss, id);
+        var keyLock = _productByIdLocks.GetOrAdd(id, static _ => new SemaphoreSlim(1, 1));
+        var acquired = await keyLock.WaitAsync(TimeSpan.FromSeconds(5));
+        if (!acquired)
+            throw new TimeoutException($"Could not acquire cache lock for Product {id}.");
 
-        var product = await _productRepository.GetByIdAsync(id);
-
-        if (product == null)
+        try
         {
-            _logger.LogWarning(LogMessages.ProductNotFound, id);
-            throw new NotFoundException("Product not found");
+            cached = await _cache.GetAsync<ProductResponseDto>(cacheKey);
+            if (cached != null)
+            {
+                _logger.LogInformation(LogMessages.ProductCacheHit, id);
+                return cached;
+            }
+
+            _logger.LogInformation(LogMessages.ProductCacheMiss, id);
+
+            var product = await _productRepository.GetByIdAsync(id);
+            if (product == null)
+            {
+                _logger.LogWarning(LogMessages.ProductNotFound, id);
+                throw new NotFoundException("Product not found");
+            }
+
+            var response = ProductMapper.ToDto(product);
+            await _cache.SetAsync(cacheKey, response, TimeSpan.FromMinutes(5));
+            return response;
         }
-
-        var response = ProductMapper.ToDto(product);
-
-        await _cache.SetAsync(cacheKey, response, TimeSpan.FromMinutes(5));
-
-        return response;
+        finally
+        {
+            keyLock.Release();
+        }
     }
 
     public async Task<PagedResult<ProductResponseDto>> GetAllAsync(ProductQuery query)

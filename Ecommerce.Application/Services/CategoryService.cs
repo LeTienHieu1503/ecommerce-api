@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Ecommerce.Application.Common.Mappers;
 using Ecommerce.Application.Common.Logging;
 using Ecommerce.Application.Common.Caching;
+using System.Collections.Concurrent;
 
 namespace Ecommerce.Application.Services;
 
@@ -18,6 +19,7 @@ public class CategoryService : ICategoryService
     private readonly ILogger<CategoryService> _logger;
     private readonly ICacheService _cache;
     private static readonly SemaphoreSlim _categoryListLock = new SemaphoreSlim(1, 1);
+    private static readonly ConcurrentDictionary<int, SemaphoreSlim> _categoryByIdLocks = new();
 
     public CategoryService(
     ICategoryRepository categoryRepository,
@@ -43,7 +45,10 @@ public class CategoryService : ICategoryService
             return cached;
         }
 
-        await _categoryListLock.WaitAsync();
+        var acquired = await _categoryListLock.WaitAsync(TimeSpan.FromSeconds(10));
+        if (!acquired)
+            throw new TimeoutException("Could not acquire category list lock.");
+
         try
         {
             cached = await _cache.GetAsync<PagedResult<CategoryResponseDto>>(cacheKey);
@@ -89,27 +94,43 @@ public class CategoryService : ICategoryService
         var cacheKey = CacheKeysCategory.Category(id);
 
         var cached = await _cache.GetAsync<CategoryResponseDto>(cacheKey);
-
         if (cached != null)
         {
             _logger.LogInformation(LogMessages.CategoryCacheHit, id);
             return cached;
         }
 
-        _logger.LogInformation(LogMessages.CategoryCacheMiss, id);
+        var keyLock = _categoryByIdLocks.GetOrAdd(id, static _ => new SemaphoreSlim(1, 1));
+        var acquired = await keyLock.WaitAsync(TimeSpan.FromSeconds(5));
+        if (!acquired)
+            throw new TimeoutException($"Could not acquire cache lock for Category {id}.");
 
-        var category = await _categoryRepository.GetByIdAsync(id);
-
-        if (category == null)
+        try
         {
-            _logger.LogWarning(LogMessages.CategoryNotFound, id);
-            throw new NotFoundException("Category not found");
+            cached = await _cache.GetAsync<CategoryResponseDto>(cacheKey);
+            if (cached != null)
+            {
+                _logger.LogInformation(LogMessages.CategoryCacheHit, id);
+                return cached;
+            }
+
+            _logger.LogInformation(LogMessages.CategoryCacheMiss, id);
+
+            var category = await _categoryRepository.GetByIdAsync(id);
+            if (category == null)
+            {
+                _logger.LogWarning(LogMessages.CategoryNotFound, id);
+                throw new NotFoundException("Category not found");
+            }
+
+            var dto = CategoryMapper.ToDto(category);
+            await _cache.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(10));
+            return dto;
         }
-
-        var dto = CategoryMapper.ToDto(category);
-        await _cache.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(10));
-
-        return dto;
+        finally
+        {
+            keyLock.Release();
+        }
     }
 
     public async Task<CategoryResponseDto> CreateAsync(CreateCategoryDto dto)

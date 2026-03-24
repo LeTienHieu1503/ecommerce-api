@@ -7,6 +7,7 @@ using Ecommerce.Application.DTOs.Order;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using Ecommerce.Application.Common.Caching;
+using System.Collections.Concurrent;
 
 namespace Ecommerce.Application.Services;
 
@@ -17,6 +18,8 @@ public class OrderService : IOrderService
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICacheService _cache;
     private readonly ILogger<OrderService> _logger;
+
+    private static readonly ConcurrentDictionary<int, SemaphoreSlim> _orderByIdLocks = new();
 
     public OrderService(
         IOrderRepository orderRepo,
@@ -134,8 +137,43 @@ public class OrderService : IOrderService
 
     public async Task<OrderDto?> GetOrderByIdAsync(int id)
     {
-        var order = await _orderRepo.GetByIdAsync(id);
-        return order != null ? MapToDto(order) : null;
+        var cacheKey = CacheKeysOrder.Order(id);
+
+        var cached = await _cache.GetAsync<OrderDto>(cacheKey);
+        if (cached != null)
+        {
+            _logger.LogInformation("Cache hit for Order {OrderId}", id);
+            return cached;
+        }
+
+        var keyLock = _orderByIdLocks.GetOrAdd(id, static _ => new SemaphoreSlim(1, 1));
+        var acquired = await keyLock.WaitAsync(TimeSpan.FromSeconds(5));
+        if (!acquired)
+            throw new TimeoutException($"Could not acquire cache lock for Order {id}.");
+
+        try
+        {
+            cached = await _cache.GetAsync<OrderDto>(cacheKey);
+            if (cached != null)
+            {
+                _logger.LogInformation("Cache hit for Order {OrderId}", id);
+                return cached;
+            }
+
+            _logger.LogInformation("Cache miss for Order {OrderId}", id);
+
+            var order = await _orderRepo.GetByIdAsync(id);
+            if (order == null)
+                return null;
+
+            var dto = MapToDto(order);
+            await _cache.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(2));
+            return dto;
+        }
+        finally
+        {
+            keyLock.Release();
+        }
     }
 
     public async Task<IEnumerable<OrderDto>> GetOrdersByUserIdAsync(int userId)
@@ -193,6 +231,16 @@ public class OrderService : IOrderService
 
             await _unitOfWork.SaveChangesAsync();
             await transaction.CommitAsync();
+
+            try
+            {
+                await _cache.RemoveAsync(CacheKeysOrder.Order(orderId));
+                _logger.LogInformation("Cache invalidated | {CacheKey}", CacheKeysOrder.Order(orderId));
+            }
+            catch (Exception cacheEx)
+            {
+                _logger.LogWarning(cacheEx, "Failed to invalidate cache for Order {OrderId}", orderId);
+            }
 
             foreach (var item in order.Items)
             {
