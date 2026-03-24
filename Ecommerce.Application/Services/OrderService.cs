@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using Ecommerce.Application.Common.Caching;
 using System.Collections.Concurrent;
+using Ecommerce.Application.Common.Mappers;
 
 namespace Ecommerce.Application.Services;
 
@@ -116,7 +117,7 @@ public class OrderService : IOrderService
             _logger.LogInformation("Order created successfully | OrderId={OrderId} | CorrelationId={CorrelationId}",
                 order.Id, correlationId);
 
-            return MapToDto(order);
+            return OrderMapper.ToDto(order);
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -168,7 +169,7 @@ public class OrderService : IOrderService
             if (order == null)
                 return null;
 
-            var dto = MapToDto(order);
+            var dto = OrderMapper.ToDto(order);
             await _cache.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(2));
             return dto;
         }
@@ -181,7 +182,7 @@ public class OrderService : IOrderService
     public async Task<IEnumerable<OrderDto>> GetOrdersByUserIdAsync(int userId)
     {
         var orders = await _orderRepo.GetByUserIdAsync(userId);
-        return orders.Select(MapToDto);
+        return orders.Select(o => OrderMapper.ToDto(o));
     }
 
     public async Task<PagedResult<OrderDto>> GetAllOrdersAsync(OrderQuery query)
@@ -317,7 +318,7 @@ public class OrderService : IOrderService
         {
             await transaction.RollbackAsync();
             _logger.LogError("Concurrency conflict during CancelOrder | OrderId={OrderId}, UserId={UserId}", orderId, currentUserId);
-            throw new BusinessException("Order hoặc sản phẩm đã được chỉnh sửa bởi tiến trình khác. Vui lòng thử lại.");
+            throw new BusinessException("Order was updated by another process. Please retry.");
         }
         catch (NotFoundException)
         {
@@ -355,23 +356,5 @@ public class OrderService : IOrderService
         {
             _logger.LogWarning(ex, "Failed to bump product list cache version");
         }
-    }
-
-    private static OrderDto MapToDto(Order order)
-    {
-        return new OrderDto
-        {
-            Id = order.Id,
-            UserId = order.UserId,
-            CreatedAt = order.CreatedAt,
-            Status = order.Status.ToString(),
-            Items = order.Items.Select(i => new OrderItemDto
-            {
-                Id = i.Id,
-                ProductId = i.ProductId,
-                Quantity = i.Quantity,
-                Price = i.Price
-            }).ToList()
-        };
     }
 }
