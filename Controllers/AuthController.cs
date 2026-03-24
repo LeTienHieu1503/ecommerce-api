@@ -54,7 +54,7 @@ public class AuthController : BaseApiController
             Roles = roles
         });
     }
-
+    [AllowAnonymous]
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh(TokenRequestDto request)
     {

@@ -37,7 +37,8 @@ public static class AuthExtensions
                     ValidAudience = jwt["Audience"],
                     IssuerSigningKey = new SymmetricSecurityKey(
                         Encoding.UTF8.GetBytes(jwtKey)),
-                    RoleClaimType = ClaimTypes.Role
+                    RoleClaimType = ClaimTypes.Role,
+                    ClockSkew = TimeSpan.Zero
                 };
 
                 options.Events = BuildJwtBearerEvents();

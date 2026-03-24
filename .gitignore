@@ -382,7 +382,7 @@ docker-compose.override.yml
 
 # Test artifacts
 *.http
-test_*.ps1
+*.ps1
 dotnet_test.log
 
 # Rider IDE

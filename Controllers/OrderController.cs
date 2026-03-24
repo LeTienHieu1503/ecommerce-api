@@ -54,7 +54,7 @@ public class OrderController : BaseApiController
         return Success(order);
     }
 
-    [Authorize(Policy = "order.read")]
+    [Authorize(Policy = Authorization.Policies.AuthorizationPolicies.AdminOnly)]
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {

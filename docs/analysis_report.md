@@ -6,30 +6,31 @@ Dựa trên việc rà soát toàn bộ mã nguồn, dưới đây là đánh gi
 
 Dự án hiện đang có một nền tảng rất vững chắc với kiến trúc sạch (**Clean Architecture**) và áp dụng nhiều Best Practices.
 
-### Kiến trúc & Pattern
-- **Clean Architecture**: Phân tách rõ ràng (Domain, Application, Infrastructure, API).
-- **Repository & Unit of Work**: Đảm bảo tính nhất quán của dữ liệu, đặc biệt là trong các nghiệp vụ phức tạp như đặt hàng.
-- **Manual Mapping**: Sử dụng Static Mapper giúp hiệu năng cao và dễ kiểm soát hơn AutoMapper.
-- **BaseApiController & ApiResponse**: Chuẩn hóa định dạng phản hồi API (success, message, data).
+### Kiến trúc & Pattern (Architecture & Patterns)
+- **Kiến trúc Clean Architecture**: Chia dự án thành 4 lớp rõ rệt: **Domain** (Core business), **Application** (Use cases), **Infrastructure** (Data/Caching), và **API** (Presentation).
+- **Repository & Unit of Work**: Sử dụng để trừu tượng hóa việc truy cập dữ liệu và quản lý giao dịch (**Transactions**). Đảm bảo tính toàn vẹn (Atomicity) khi thực hiện nhiều thao tác dữ liệu cùng lúc.
+- **Manual Static Mapping**: Sử dụng `Static Mapper` cho hiệu năng vượt trội so với AutoMapper, giúp dễ dàng debug và kiểm soát việc chuyển đổi dữ liệu giữa Entity và DTO.
+- **Unified Base Controller**: `BaseApiController` kết hợp với `ApiResponse<T>` để chuẩn hóa toàn bộ đầu ra (Success, ErrorCode, Message, Data).
 
-### Chức năng Core
-- **Xác thực & Phân quyền (Auth & Security)**:
-    - JWT với Access Token & Refresh Token.
-    - **Security cao**: Kiểm tra `sid` (Session ID), `sv` (Session Version) và **IP Fingerprinting** (iph) để chống Hijacking.
-    - Token Blacklisting (Redis) khi Logout.
+### Chức năng Core (Core Features)
+- **Hệ thống Bảo mật (Security & Identity)**:
+    - **Phương pháp**: JWT Authentication kết hợp **Refresh Token Rotation**.
+    - **IP Fingerprinting**: Sử dụng claim `iph` (IP Hash) được băm với mã bí mật để ngăn chặn **Session Hijacking** ngay cả khi Token bị lộ.
+    - **Session Integrity**: Kiểm tra `sid` (Session ID) và `sv` (Session Version) trên mỗi request để hỗ trợ Logout toàn cục/từ xa.
+    - **Token Blacklisting**: Sử dụng Redis để lưu danh sách đen các Access Token đã bị vô hiệu hóa (khi Logout hoặc Refresh).
 - **Quản lý Catalog (Product & Category)**:
-    - CRUD đầy đủ.
-    - Phân trang (**Pagination**), Sắp xếp (**Sorting**) và Tìm kiếm (**Search**).
-    - Logic ràng buộc: Không xóa Category nếu còn Product.
-- **Hệ thống Order**:
-    - Xử lý đặt hàng với giao dịch (Transaction).
-    - Khấu trừ tồn kho (**Stock Management**) tự động.
-    - Xử lý tranh chấp đồng thời (**Concurrency**) bằng `RowVersion`.
+    - **Query Layer**: Áp dụng **Pagination**, **Dynamic Sorting**, và **Prefix Search**.
+    - **Constraints**: Ràng buộc toàn vẹn dữ liệu ở tầng Application (ví dụ: không xóa Category nếu còn Product).
+- **Xử lý Đơn hàng & Kho (Orders & Inventory)**:
+    - **ACID Transactions**: Sử dụng `BeginTransactionAsync()` để đảm bảo thao tác trừ kho và tạo đơn hàng luôn đi cùng nhau.
+    - **Optimistic Concurrency**: Sử dụng **RowVersion** (concurrency token) để xử lý tranh chấp dữ liệu khi nhiều người mua cùng lúc, ngăn chặn tình trạng "over-selling".
 
-### Hạ tầng (Infrastructure)
-- **Caching Layer**: Hệ thống Cache-Aside dùng Redis (hoặc Memory Cache khi dev). Sử dụng **List Versioning** để invalidate cache danh sách hiệu quả.
-- **Global Exception Handling**: Middleware bắt lỗi tập trung, trả về đúng mã lỗi (404, 400, 401, 403, 500).
-- **Logging**: Tích hợp Serilog với Structured Logging, có RequestId để theo dõi log.
+### Hạ tầng (Infrastructure & Cross-cutting Concerns)
+- **Hệ thống Caching**:
+    - **Pattern**: **Cache-Aside** sử dụng Redis Distributed Cache.
+    - **List Versioning Methodology**: Sử dụng một `Version key` để đánh phiên bản cho các danh sách (list). Khi dữ liệu thay đổi (Add/Update/Delete), chỉ cần tăng version này để vô hiệu hóa (invalidate) toàn bộ cache danh sách một cách hiệu quả mà không cần quét (scan) khóa Redis.
+- **Global Exception Handling**: Sử dụng **Custom Middleware** bắt tập trung mọi ngoại lệ, chuyển đổi thành chuẩn `ApiResponse` với mã HTTP tương ứng (400, 401, 403, 404, 500).
+- **Structured Logging**: Tích hợp **Serilog** với định dạng JSON, sử dụng `RequestId` (TraceIdentifier) để liên kết toàn bộ log của một request từ lúc bắt đầu đến khi kết thúc.
 
 ---
 
@@ -52,7 +53,7 @@ Dự án hiện tại giống như một Core Engine mạnh mẽ nhưng còn thi
 ## 3. Những gì cần tối ưu hóa (Optimizations)
 
 ### Code & Maintainability
-- **Program.cs quá dài**: Hiện tại file [Program.cs](file:///c:/Users/TienHieu/source/repos/Ecommerce.API/Program.cs) đang chứa quá nhiều logic cấu hình. Nên tách ra các Extension Methods như `AddAuthServices()`, `AddInfrastructure()`, `AddSwaggerConfig()`.
+- **Program.cs quá dài**: Hiện tại file [Program.cs](file:///c:/Users/TienHieu/source/repos/Ecommerce.API/Program.cs) đang chứa quá nhiều logic cấu hình. Nên tách ra các Extension Methods như `AddAuthServices()`, `AddInfrastructure()`, `AddSwaggerConfig()`. (Done)
 - **Tránh lặp code (DRY)**: Logic Phân trang và Cache Versioning trong [ProductService](file:///c:/Users/TienHieu/source/repos/Ecommerce.API/Ecommerce.Application/Services/ProductService.cs#24-33) và [CategoryService](file:///c:/Users/TienHieu/source/repos/Ecommerce.API/Ecommerce.Application/Services/CategoryService.cs#15-199) khá giống nhau. Có thể trừu tượng hóa (Abstract) vào một Base Service hoặc Helper.
 - **Dùng FluentValidation**: Thay vì DataAnnotations trong DTO, dùng FluentValidation sẽ giúp logic validation tách biệt và mạnh mẽ hơn (hỗ trợ các luật phức tạp).
 
@@ -61,7 +62,7 @@ Dự án hiện tại giống như một Core Engine mạnh mẽ nhưng còn thi
 - **Dapper cho Read-only**: Ở các API query danh sách lớn, có thể cân nhắc dùng Dapper thay cho EF Core + `.AsNoTracking()` để đạt tốc độ tối đa.
 
 ### Bảo mật (Security)
-- **Rate Limiting**: Cần thêm giới hạn số lần gọi API (nhất là API Login/Register) để chống Brute-force.
+- **Rate Limiting**: Cần thêm giới hạn số lần gọi API (nhất là API Login/Register) để chống Brute-force.(Done)
 - **CORS Policy**: Hiện tại có vẻ chưa cấu hình chặt chẽ CORS trong [Program.cs](file:///c:/Users/TienHieu/source/repos/Ecommerce.API/Program.cs).
 
 ---
