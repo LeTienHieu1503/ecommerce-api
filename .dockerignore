@@ -1,0 +1,38 @@
+# Git & IDE
+.git
+.gitattributes
+.gitignore
+**/.vs
+**/.vscode
+**/*.user
+**/*.suo
+
+# Build outputs (built inside the image)
+**/bin
+**/obj
+**/out
+
+# Secrets & local overrides
+.env
+.env.*
+!.env.example
+**/appsettings.*.local.json
+
+# Runtime logs on host
+logs
+
+# Tests — not needed for API image
+Ecommerce.UnitTests
+**/TestResults
+**/coverage*
+
+# Compose & tooling (not copied by Dockerfile, shrinks context)
+docker-compose*.yml
+*.ps1
+*.md
+.cursorrules
+.cursor
+
+# Docs (optional shrink)
+docs
+

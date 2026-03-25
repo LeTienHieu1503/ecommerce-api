@@ -27,9 +27,6 @@ public class EfUnitOfWork : IUnitOfWork
 
     public void Dispose()
     {
-        // Do NOT dispose _context here.
-        // ApplicationDbContext is registered as Scoped and its lifetime is managed by DI.
-        // Disposing it here causes a double-dispose on subsequent accesses.
         _disposed = true;
     }
 }

@@ -24,8 +24,8 @@ public class ProductController : BaseApiController
         _service = service;
     }
 
+    [AllowAnonymous]
     [HttpGet]
-    [Authorize(Policy = "product.read")]
     public async Task<IActionResult> GetProducts([FromQuery] ProductQuery query)
     {
         var result = await _service.GetAllAsync(query);
@@ -33,8 +33,8 @@ public class ProductController : BaseApiController
         return Success(result, "Get successfully");
     }
 
+    [AllowAnonymous]
     [HttpGet("{id:int}")]
-    [Authorize(Policy = "product.read")]
     public async Task<IActionResult> GetById(int id)
     {
         var product = await _service.GetByIdAsync(id);

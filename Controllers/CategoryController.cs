@@ -22,8 +22,8 @@ public class CategoryController : BaseApiController
         _service = service;
     }
 
+    [AllowAnonymous]
     [HttpGet]
-    [Authorize(Policy = "category.read")]
     public async Task<IActionResult> GetCategories([FromQuery] CategoryQuery query)
     {
         var result = await _service.GetAllAsync(query);
@@ -31,8 +31,8 @@ public class CategoryController : BaseApiController
         return Success(result);
     }
 
+    [AllowAnonymous]
     [HttpGet("{id:int}")]
-    [Authorize(Policy = "category.read")]
     public async Task<IActionResult> GetById(int id)
     {
         var category = await _service.GetByIdAsync(id);
