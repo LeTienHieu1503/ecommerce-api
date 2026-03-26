@@ -58,15 +58,8 @@ public class RoleRepository : IRoleRepository
     public async Task AssignPermissionsAsync(int roleId, IEnumerable<int> permissionIds)
     {
         var distinctIds = permissionIds.Distinct().ToList();
-
-        // If caller passes empty list, treat it as "clear all permissions"
         if (distinctIds.Count == 0)
-        {
-            var existingAll = _context.RolePermissions.Where(rp => rp.RoleId == roleId);
-            _context.RolePermissions.RemoveRange(existingAll);
-            await _context.SaveChangesAsync();
             return;
-        }
 
         var existingPermissionIds = await _context.RolePermissions
             .Where(rp => rp.RoleId == roleId)
@@ -87,6 +80,23 @@ public class RoleRepository : IRoleRepository
             await _context.RolePermissions.AddRangeAsync(toAdd);
             await _context.SaveChangesAsync();
         }
+    }
+
+    public async Task RemovePermissionsAsync(int roleId, IEnumerable<int> permissionIds)
+    {
+        var distinctIds = permissionIds.Distinct().ToList();
+        if (distinctIds.Count == 0)
+            return;
+
+        var toRemove = await _context.RolePermissions
+            .Where(rp => rp.RoleId == roleId && distinctIds.Contains(rp.PermissionId))
+            .ToListAsync();
+
+        if (toRemove.Count == 0)
+            return;
+
+        _context.RolePermissions.RemoveRange(toRemove);
+        await _context.SaveChangesAsync();
     }
 
     public async Task AssignRoleToUserAsync(int userId, int roleId)

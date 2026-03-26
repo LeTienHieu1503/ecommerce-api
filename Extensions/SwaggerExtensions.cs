@@ -34,6 +34,22 @@ public static class SwaggerExtensions
                     new string[] {}
                 }
             });
+
+            options.TagActionsBy(api =>
+{
+                var controller = api.ActionDescriptor.RouteValues["controller"];
+                return controller switch
+                {
+                    "Auth" => new[] { "1. Auth" },
+                    "Category" => new[] { "2. Categories" },
+                    "Product" => new[] { "3. Products" },
+                    "Order" => new[] { "4. Orders" },
+                    "Users" => new[] { "5. Users" },
+                    "Roles" => new[] { "6. Roles" },
+                    "Permissions" => new[] { "7. Permissions" },
+                    _ => new[] { $"{controller}" }
+                };
+            });
         });
 
         return services;

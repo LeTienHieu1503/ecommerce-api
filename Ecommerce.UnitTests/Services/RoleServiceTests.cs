@@ -135,6 +135,59 @@ public class RoleServiceTests
         _cache.Verify(c => c.RemoveAsync(It.IsAny<string>()), Times.Never);
     }
 
+    [Fact]
+    public async Task AssignPermissionsAsync_WhenEmptyPermissionIds_DoesNotCallRepositoryOrInvalidateCache()
+    {
+        await _sut.AssignPermissionsAsync(1, Array.Empty<int>());
+        await _sut.AssignPermissionsAsync(1, new List<int>());
+
+        _roleRepo.Verify(
+            r => r.AssignPermissionsAsync(It.IsAny<int>(), It.IsAny<IEnumerable<int>>()),
+            Times.Never);
+        _cache.Verify(c => c.RemoveAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    // =============================================
+    // REMOVEPERMISSIONS TESTS
+    // =============================================
+
+    [Fact]
+    public async Task RemovePermissionsAsync_WhenValidInput_RemovesAndInvalidatesCache()
+    {
+        var roleId = 1;
+        var permissionIds = new List<int> { 1, 2 };
+        var affectedUserIds = new List<int> { 10 };
+
+        _roleRepo.Setup(r => r.RemovePermissionsAsync(
+                roleId,
+                It.Is<IEnumerable<int>>(ids => ids.SequenceEqual(permissionIds))))
+            .Returns(Task.CompletedTask);
+        _roleRepo.Setup(r => r.GetUserIdsByRoleIdAsync(roleId))
+            .ReturnsAsync(affectedUserIds);
+        _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+
+        await _sut.RemovePermissionsAsync(roleId, permissionIds);
+
+        _roleRepo.Verify(
+            r => r.RemovePermissionsAsync(
+                roleId,
+                It.Is<IEnumerable<int>>(ids => ids.SequenceEqual(permissionIds))),
+            Times.Once);
+        _cache.Verify(c => c.RemoveAsync("permissions:10"), Times.Once);
+    }
+
+    [Fact]
+    public async Task RemovePermissionsAsync_WhenEmptyPermissionIds_DoesNotCallRepositoryOrInvalidateCache()
+    {
+        await _sut.RemovePermissionsAsync(1, Array.Empty<int>());
+
+        _roleRepo.Verify(
+            r => r.RemovePermissionsAsync(It.IsAny<int>(), It.IsAny<IEnumerable<int>>()),
+            Times.Never);
+        _cache.Verify(c => c.RemoveAsync(It.IsAny<string>()), Times.Never);
+    }
+
     // =============================================
     // ASSIGNROLETOUSERASYNC TESTS
     // =============================================

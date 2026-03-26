@@ -33,13 +33,22 @@ public class RoleService : IRoleService
 
     public async Task AssignPermissionsAsync(int roleId, IEnumerable<int> permissionIds)
     {
-        await _roleRepository.AssignPermissionsAsync(roleId, permissionIds);
-        var affectedUserIds = await _roleRepository.GetUserIdsByRoleIdAsync(roleId);
+        var ids = permissionIds?.Distinct().ToList() ?? new List<int>();
+        if (ids.Count == 0)
+            return;
 
-        foreach (var userId in affectedUserIds)
-        {
-            await _cacheService.RemoveAsync($"{PermissionsKeyPrefix}{userId}");
-        }
+        await _roleRepository.AssignPermissionsAsync(roleId, ids);
+        await InvalidatePermissionCacheForRoleUsersAsync(roleId);
+    }
+
+    public async Task RemovePermissionsAsync(int roleId, IEnumerable<int> permissionIds)
+    {
+        var ids = permissionIds?.Distinct().ToList() ?? new List<int>();
+        if (ids.Count == 0)
+            return;
+
+        await _roleRepository.RemovePermissionsAsync(roleId, ids);
+        await InvalidatePermissionCacheForRoleUsersAsync(roleId);
     }
 
     public async Task AssignRoleToUserAsync(int userId, int roleId)
@@ -94,5 +103,14 @@ public class RoleService : IRoleService
             throw new Exception("Role not found");
 
         await _roleRepository.DeleteAsync(role);
+    }
+
+    private async Task InvalidatePermissionCacheForRoleUsersAsync(int roleId)
+    {
+        var affectedUserIds = await _roleRepository.GetUserIdsByRoleIdAsync(roleId);
+        foreach (var userId in affectedUserIds)
+        {
+            await _cacheService.RemoveAsync($"{PermissionsKeyPrefix}{userId}");
+        }
     }
 }

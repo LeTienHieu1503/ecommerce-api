@@ -8,6 +8,8 @@ public interface IRoleService
 
     Task AssignPermissionsAsync(int roleId, IEnumerable<int> permissionIds);
 
+    Task RemovePermissionsAsync(int roleId, IEnumerable<int> permissionIds);
+
     Task AssignRoleToUserAsync(int userId, int roleId);
 
     Task<IReadOnlyList<(int Id, string Name, IReadOnlyList<string> Permissions)>> GetRolesAsync();

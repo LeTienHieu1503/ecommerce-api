@@ -20,6 +20,8 @@ public class RolesController : BaseApiController
 
     public record AssignPermissionsRequest(IEnumerable<int> PermissionIds);
 
+    public record RemovePermissionsRequest(IEnumerable<int> PermissionIds);
+
     [HttpPost]
     public async Task<IActionResult> CreateRole([FromBody] CreateRoleRequest request)
     {
@@ -48,6 +50,16 @@ public class RolesController : BaseApiController
         await _roleService.AssignPermissionsAsync(roleId, request.PermissionIds);
         var permissionIds = request.PermissionIds?.ToList() ?? new List<int>();
         return Success(new { roleId, permissionIds }, "Assign permissions successfully");
+    }
+
+    [HttpDelete("{roleId:int}/permissions")]
+    public async Task<IActionResult> RemovePermissions(
+        int roleId,
+        [FromBody] RemovePermissionsRequest request)
+    {
+        await _roleService.RemovePermissionsAsync(roleId, request.PermissionIds);
+        var permissionIds = request.PermissionIds?.ToList() ?? new List<int>();
+        return Success(new { roleId, permissionIds }, "Remove permissions successfully");
     }
 
     [HttpPut("{id:int}")]
