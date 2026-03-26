@@ -5,12 +5,7 @@ namespace Ecommerce.Infrastructure.Data;
 
 public static class AdminSeeder
 {
-    /// <summary>
-    /// Must stay lowercase: <see cref="Ecommerce.Application.Services.AuthService.LoginAsync"/> normalizes email with ToLower().
-    /// </summary>
     private const string AdminEmail = "admin";
-
-    /// <summary>Legacy seed used mixed case; existing DBs would get 401 on login until normalized.</summary>
     private const string LegacyAdminEmail = "Admin";
 
     public static async Task SeedAdminAsync(ApplicationDbContext context)

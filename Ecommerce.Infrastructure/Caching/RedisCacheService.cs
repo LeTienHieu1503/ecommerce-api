@@ -17,11 +17,6 @@ public class RedisCacheService : ICacheService
         PropertyNameCaseInsensitive = true
     };
 
-    /// <summary>
-    /// StackExchange Redis <see cref="IDistributedCache"/> stores each entry as a Redis <b>hash</b> (fields absexp, sldexp, data).
-    /// Raw <c>INCR</c> on the same key creates a <b>string</b> key → WRONGTYPE on read, version key gets deleted, list cache never invalidates.
-    /// Increment must go through <see cref="IDistributedCache"/> only.
-    /// </summary>
     public RedisCacheService(IDistributedCache cache)
     {
         _cache = cache;

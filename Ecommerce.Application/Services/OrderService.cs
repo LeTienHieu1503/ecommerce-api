@@ -227,7 +227,6 @@ public class OrderService : IOrderService
         return await dtoQuery.ToPagedResultAsync(query.Page, query.PageSize);
     }
 
-    /// <summary>Maps client sort field to a safe property name for Dynamic LINQ (whitelist).</summary>
     private static string? NormalizeOrderSortField(string? sortBy)
     {
         if (string.IsNullOrWhiteSpace(sortBy))

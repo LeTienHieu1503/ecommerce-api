@@ -1,4 +1,6 @@
+using System.Linq;
 using Microsoft.OpenApi.Models;
+using Swashbuckle.AspNetCore.SwaggerGen;
 
 namespace Ecommerce.API.Extensions;
 
@@ -35,6 +37,8 @@ public static class SwaggerExtensions
                 }
             });
 
+            options.OperationFilter<SwaggerDeviceIdHeaderOperationFilter>();
+
             options.TagActionsBy(api =>
 {
                 var controller = api.ActionDescriptor.RouteValues["controller"];
@@ -64,5 +68,30 @@ public static class SwaggerExtensions
         }
 
         return app;
+    }
+}
+
+internal sealed class SwaggerDeviceIdHeaderOperationFilter : IOperationFilter
+{
+    public void Apply(OpenApiOperation operation, OperationFilterContext context)
+    {
+        if (operation.Parameters?.Any(p =>
+                p.In == ParameterLocation.Header &&
+                string.Equals(p.Name, "X-Device-Id", StringComparison.OrdinalIgnoreCase)) == true)
+        {
+            return;
+        }
+
+        operation.Parameters ??= new List<OpenApiParameter>();
+
+        operation.Parameters.Add(new OpenApiParameter
+        {
+            Name = "X-Device-Id",
+            In = ParameterLocation.Header,
+            Description =
+                "Optional. If login included deviceId, send the same value here on every request (and refresh).",
+            Required = false,
+            Schema = new OpenApiSchema { Type = "string" }
+        });
     }
 }
