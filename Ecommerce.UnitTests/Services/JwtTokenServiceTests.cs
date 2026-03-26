@@ -209,6 +209,49 @@ public class JwtTokenServiceTests
             .WithMessage("*JWT Key*missing*");
     }
 
+    [Fact]
+    public void GenerateToken_WhenExpireMinutesMissing_ThrowsException()
+    {
+        var badConfig = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Jwt:Key"] = "super-secret-key-for-testing-only-32chars!!",
+                ["Jwt:Issuer"] = "TestIssuer",
+                ["Jwt:Audience"] = "TestAudience"
+            })
+            .Build();
+
+        var service = new JwtTokenService(badConfig);
+        var user = CreateFakeUser();
+
+        var act = () => service.GenerateToken(user);
+
+        act.Should().Throw<Exception>()
+            .WithMessage("*JWT ExpireMinutes*");
+    }
+
+    [Fact]
+    public void GenerateToken_WhenExpireMinutesInvalid_ThrowsException()
+    {
+        var badConfig = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Jwt:Key"] = "super-secret-key-for-testing-only-32chars!!",
+                ["Jwt:Issuer"] = "TestIssuer",
+                ["Jwt:Audience"] = "TestAudience",
+                ["Jwt:ExpireMinutes"] = "0"
+            })
+            .Build();
+
+        var service = new JwtTokenService(badConfig);
+        var user = CreateFakeUser();
+
+        var act = () => service.GenerateToken(user);
+
+        act.Should().Throw<Exception>()
+            .WithMessage("*JWT ExpireMinutes*");
+    }
+
     // =============================================
     // GENERATEREFRESHTOKEN TESTS
     // =============================================

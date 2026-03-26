@@ -9,5 +9,6 @@ public interface IAuthService
     Task<LoginResponseDto> LoginAsync(LoginRequestDto request, string clientIp);
     Task<LoginResponseDto> RefreshTokenAsync(TokenRequestDto request);
     Task<LoginResponseDto> RefreshTokenAsync(TokenRequestDto request, string clientIp);
+    Task<LoginResponseDto> RefreshTokenAsync(TokenRequestDto request, string clientIp, string? deviceId);
     Task LogoutAsync(string token, int userId);
 }

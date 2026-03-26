@@ -11,6 +11,7 @@ namespace Ecommerce.Domain.Entities
         public string? CurrentSessionId { get; set; }
         public long SessionVersion { get; set; }
         public string? LastLoginIpHash { get; set; }
+        public string? LastLoginDeviceHash { get; set; }
 
         public ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
     }

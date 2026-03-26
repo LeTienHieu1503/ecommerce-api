@@ -17,6 +17,7 @@ services:
 
       Jwt__Key: "${Jwt__Key}"
       AuthSecurity__FingerprintSecret: "${AuthSecurity__FingerprintSecret}"
+      AuthSecurity__DeviceBindingSecret: "${AuthSecurity__DeviceBindingSecret}"
     ports:
       - "5169:80"
     depends_on:

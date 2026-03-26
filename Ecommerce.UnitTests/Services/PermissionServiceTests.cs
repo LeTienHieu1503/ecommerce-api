@@ -1,6 +1,7 @@
 using Ecommerce.Application.Interfaces;
 using Ecommerce.Application.Services;
 using Ecommerce.Domain.Entities;
+using Ecommerce.Domain.Exceptions;
 using Ecommerce.Domain.Interfaces;
 using FluentAssertions;
 using Moq;
@@ -235,6 +236,8 @@ public class PermissionServiceTests
         // Arrange
         Permission? savedPermission = null;
 
+        _permissionRepo.Setup(r => r.GetAllAsync())
+            .ReturnsAsync(new List<Permission>());
         _permissionRepo.Setup(r => r.AddAsync(It.IsAny<Permission>()))
             .Callback<Permission>(p => savedPermission = p) // ← capture object được save
             .Returns(Task.CompletedTask);
@@ -255,6 +258,8 @@ public class PermissionServiceTests
     public async Task CreatePermissionAsync_WhenValidInput_ReturnsPermissionId()
     {
         // Arrange
+        _permissionRepo.Setup(r => r.GetAllAsync())
+            .ReturnsAsync(new List<Permission>());
         _permissionRepo.Setup(r => r.AddAsync(It.IsAny<Permission>()))
             .Returns(Task.CompletedTask);
 
@@ -264,6 +269,23 @@ public class PermissionServiceTests
         // Assert — Id mặc định là 0 khi chưa qua DB thật
         // Trong Unit Test không có DB nên Id = 0 là đúng
         id.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CreatePermissionAsync_WhenDuplicateEntityAndAction_ThrowsException()
+    {
+        _permissionRepo.Setup(r => r.GetAllAsync())
+            .ReturnsAsync(new List<Permission>
+            {
+                CreateFakePermission(1, "product", "read")
+            });
+
+        var act = () => _sut.CreatePermissionAsync("product", "read");
+
+        await act.Should().ThrowAsync<ConflictException>()
+            .WithMessage("*Permission already exists*");
+
+        _permissionRepo.Verify(r => r.AddAsync(It.IsAny<Permission>()), Times.Never);
     }
 
     // =============================================
@@ -281,7 +303,7 @@ public class PermissionServiceTests
         var act = () => _sut.UpdatePermissionAsync(99, "product", "update");
 
         // Assert
-        await act.Should().ThrowAsync<Exception>()
+        await act.Should().ThrowAsync<NotFoundException>()
             .WithMessage("*Permission not found*");
     }
 
@@ -293,6 +315,8 @@ public class PermissionServiceTests
 
         _permissionRepo.Setup(r => r.GetByIdAsync(1))
             .ReturnsAsync(permission);
+        _permissionRepo.Setup(r => r.GetAllAsync())
+            .ReturnsAsync(new List<Permission> { permission });
         _permissionRepo.Setup(r => r.UpdateAsync(It.IsAny<Permission>()))
             .Returns(Task.CompletedTask);
 
@@ -305,6 +329,25 @@ public class PermissionServiceTests
         permission.Name.Should().Be("order.delete");
 
         _permissionRepo.Verify(r => r.UpdateAsync(permission), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdatePermissionAsync_WhenEntityActionConflictsWithAnotherPermission_ThrowsException()
+    {
+        var permission = CreateFakePermission(1, "product", "read");
+        var other = CreateFakePermission(2, "order", "create");
+
+        _permissionRepo.Setup(r => r.GetByIdAsync(1))
+            .ReturnsAsync(permission);
+        _permissionRepo.Setup(r => r.GetAllAsync())
+            .ReturnsAsync(new List<Permission> { permission, other });
+
+        var act = () => _sut.UpdatePermissionAsync(1, "order", "create");
+
+        await act.Should().ThrowAsync<ConflictException>()
+            .WithMessage("*Permission already exists*");
+
+        _permissionRepo.Verify(r => r.UpdateAsync(It.IsAny<Permission>()), Times.Never);
     }
 
     // =============================================
@@ -322,7 +365,7 @@ public class PermissionServiceTests
         var act = () => _sut.DeletePermissionAsync(99);
 
         // Assert
-        await act.Should().ThrowAsync<Exception>()
+        await act.Should().ThrowAsync<NotFoundException>()
             .WithMessage("*Permission not found*");
     }
 

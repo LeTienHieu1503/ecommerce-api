@@ -47,6 +47,7 @@ public class RolesController : BaseApiController
         int roleId,
         [FromBody] AssignPermissionsRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
         await _roleService.AssignPermissionsAsync(roleId, request.PermissionIds);
         var permissionIds = request.PermissionIds?.ToList() ?? new List<int>();
         return Success(new { roleId, permissionIds }, "Assign permissions successfully");
@@ -57,6 +58,7 @@ public class RolesController : BaseApiController
         int roleId,
         [FromBody] RemovePermissionsRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
         await _roleService.RemovePermissionsAsync(roleId, request.PermissionIds);
         var permissionIds = request.PermissionIds?.ToList() ?? new List<int>();
         return Success(new { roleId, permissionIds }, "Remove permissions successfully");

@@ -26,16 +26,24 @@ namespace Ecommerce.Application.Services
             var sessionId = user.CurrentSessionId ?? Guid.NewGuid().ToString("N");
             var sessionVersion = user.SessionVersion;
             var ipHash = user.LastLoginIpHash ?? "unknown";
-            return GenerateToken(user, sessionId, sessionVersion, ipHash);
+            var deviceHash = user.LastLoginDeviceHash;
+            return GenerateToken(user, sessionId, sessionVersion, ipHash, deviceHash);
         }
 
         public string GenerateToken(User user, string sessionId, long sessionVersion, string ipHash)
+            => GenerateToken(user, sessionId, sessionVersion, ipHash, null);
+
+        public string GenerateToken(User user, string sessionId, long sessionVersion, string ipHash, string? deviceHash)
         {
             var jwtSettings = _configuration.GetSection("Jwt");
 
             var jwtKey = jwtSettings["Key"];
             if (string.IsNullOrWhiteSpace(jwtKey))
                 throw new Exception("JWT Key is missing or empty");
+
+            var expireRaw = jwtSettings["ExpireMinutes"];
+            if (string.IsNullOrWhiteSpace(expireRaw) || !int.TryParse(expireRaw, out var expireMinutes) || expireMinutes <= 0)
+                throw new Exception("JWT ExpireMinutes is missing or invalid");
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
             var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -51,13 +59,16 @@ namespace Ecommerce.Application.Services
                 new Claim("iph", ipHash)
             };
 
+            if (!string.IsNullOrWhiteSpace(deviceHash))
+                claims.Add(new Claim("dbh", deviceHash));
+
             claims.AddRange(user.UserRoles.Select(r => new Claim("role", r.Role.Name)));
 
             var token = new JwtSecurityToken(
                 issuer: jwtSettings["Issuer"],
                 audience: jwtSettings["Audience"],
                 claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(int.Parse(jwtSettings["ExpireMinutes"]!)),
+                expires: DateTime.UtcNow.AddMinutes(expireMinutes),
                 signingCredentials: credentials
             );
 

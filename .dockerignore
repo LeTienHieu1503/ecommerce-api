@@ -28,6 +28,8 @@ Ecommerce.UnitTests
 
 # Compose & tooling (not copied by Dockerfile, shrinks context)
 docker-compose*.yml
+Dockerfile
+.dockerignore
 *.ps1
 *.md
 .cursorrules

@@ -196,6 +196,26 @@ public static class AuthExtensions
                     return;
                 }
 
+                // Validate device binding (backward-compatible: chỉ kiểm tra khi phiên có DeviceBindingHash)
+                if (!string.IsNullOrWhiteSpace(sessionState.DeviceBindingHash))
+                {
+                    var tokenDeviceHash = context.Principal?.FindFirst("dbh")?.Value;
+                    var deviceId = httpContext.Request.Headers["X-Device-Id"].FirstOrDefault();
+                    var deviceBindingSecret = configuration["AuthSecurity:DeviceBindingSecret"]
+                        ?? "fallback-device-secret";
+                    string? currentDeviceHash = !string.IsNullOrWhiteSpace(deviceId)
+                        ? DeviceBindingHelper.ComputeDeviceHash(deviceId, deviceBindingSecret)
+                        : null;
+
+                    if (tokenDeviceHash != sessionState.DeviceBindingHash ||
+                        currentDeviceHash != sessionState.DeviceBindingHash)
+                    {
+                        logger.LogWarning("Device binding mismatch for user {User}", username);
+                        context.Fail("Session invalidated.");
+                        return;
+                    }
+                }
+
                 logger.LogInformation("JWT validated for user {User}", username);
             },
 

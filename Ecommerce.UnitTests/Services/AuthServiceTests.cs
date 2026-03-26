@@ -112,7 +112,7 @@ public class AuthServiceTests
         var act = () => _sut.RegisterAsync(request);
 
         // Assert
-        await act.Should().ThrowAsync<Exception>()
+        await act.Should().ThrowAsync<BusinessException>()
             .WithMessage("*Default role*");
     }
 
@@ -212,7 +212,8 @@ public class AuthServiceTests
                 It.IsAny<User>(),
                 It.IsAny<string>(),
                 It.IsAny<long>(),
-                It.IsAny<string>()))
+                It.IsAny<string>(),
+                It.IsAny<string?>()))
             .Returns("fake-jwt-token");
 
         _jwtService.Setup(j => j.GenerateRefreshToken())
@@ -227,7 +228,7 @@ public class AuthServiceTests
         var request = new LoginRequestDto
         {
             Email = "test@example.com",
-            Password = "123456" // ← đúng password
+            Password = "123456"
         };
 
         // Act
@@ -238,6 +239,89 @@ public class AuthServiceTests
         result.Token.Should().Be("fake-jwt-token");
         result.RefreshToken.Should().Be("fake-refresh-token");
         result.Email.Should().Be("test@example.com");
+    }
+
+    [Fact]
+    public async Task LoginAsync_WithDeviceId_SetsDeviceHashInSession()
+    {
+        // Arrange
+        var user = CreateFakeUser();
+
+        _userRepo.Setup(r => r.GetByEmailAsync(It.IsAny<string>()))
+            .ReturnsAsync(user);
+        _userRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
+
+        _jwtService.Setup(j => j.GenerateToken(
+                It.IsAny<User>(), It.IsAny<string>(),
+                It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string?>()))
+            .Returns("fake-jwt-token");
+        _jwtService.Setup(j => j.GenerateRefreshToken())
+            .Returns("fake-refresh-token");
+
+        UserSessionState? capturedSession = null;
+        _cacheService.Setup(c => c.SetAsync(
+                It.IsAny<string>(),
+                It.IsAny<UserSessionState>(),
+                It.IsAny<TimeSpan?>()))
+            .Callback<string, UserSessionState, TimeSpan?>((_, s, _) => capturedSession = s)
+            .Returns(Task.CompletedTask);
+
+        var request = new LoginRequestDto
+        {
+            Email = "test@example.com",
+            Password = "123456",
+            DeviceId = "browser-uuid-1234"
+        };
+
+        // Act
+        await _sut.LoginAsync(request, "127.0.0.1");
+
+        // Assert — session phải có DeviceBindingHash khi có DeviceId
+        capturedSession.Should().NotBeNull();
+        capturedSession!.DeviceBindingHash.Should().NotBeNullOrWhiteSpace();
+        user.LastLoginDeviceHash.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task LoginAsync_WithoutDeviceId_DeviceHashIsNull()
+    {
+        // Arrange
+        var user = CreateFakeUser();
+
+        _userRepo.Setup(r => r.GetByEmailAsync(It.IsAny<string>()))
+            .ReturnsAsync(user);
+        _userRepo.Setup(r => r.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
+        _jwtService.Setup(j => j.GenerateToken(
+                It.IsAny<User>(), It.IsAny<string>(),
+                It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string?>()))
+            .Returns("fake-jwt-token");
+        _jwtService.Setup(j => j.GenerateRefreshToken())
+            .Returns("fake-refresh-token");
+
+        UserSessionState? capturedSession = null;
+        _cacheService.Setup(c => c.SetAsync(
+                It.IsAny<string>(),
+                It.IsAny<UserSessionState>(),
+                It.IsAny<TimeSpan?>()))
+            .Callback<string, UserSessionState, TimeSpan?>((_, s, _) => capturedSession = s)
+            .Returns(Task.CompletedTask);
+
+        var request = new LoginRequestDto
+        {
+            Email = "test@example.com",
+            Password = "123456"
+            // DeviceId = null → backward-compatible
+        };
+
+        // Act
+        await _sut.LoginAsync(request, "127.0.0.1");
+
+        // Assert — không có DeviceId → DeviceBindingHash phải là null
+        capturedSession.Should().NotBeNull();
+        capturedSession!.DeviceBindingHash.Should().BeNull();
+        user.LastLoginDeviceHash.Should().BeNull();
     }
 
     [Fact]
@@ -252,7 +336,7 @@ public class AuthServiceTests
             .Returns(Task.CompletedTask);
         _jwtService.Setup(j => j.GenerateToken(
                 It.IsAny<User>(), It.IsAny<string>(),
-                It.IsAny<long>(), It.IsAny<string>()))
+                It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string?>()))
             .Returns("fake-jwt-token");
         _jwtService.Setup(j => j.GenerateRefreshToken())
             .Returns("fake-refresh-token");

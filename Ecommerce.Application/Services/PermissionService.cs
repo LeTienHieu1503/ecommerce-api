@@ -1,4 +1,5 @@
 using Ecommerce.Application.Interfaces;
+using Ecommerce.Domain.Exceptions;
 using Ecommerce.Domain.Interfaces;
 
 namespace Ecommerce.Application.Services;
@@ -63,6 +64,12 @@ public class PermissionService : IPermissionService
 
     public async Task<int> CreatePermissionAsync(string entity, string action)
     {
+        var all = await _permissionRepository.GetAllAsync();
+        if (all.Any(p =>
+                string.Equals(p.Entity, entity, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(p.Action, action, StringComparison.OrdinalIgnoreCase)))
+            throw new ConflictException("Permission already exists");
+
         var name = $"{entity}.{action}";
         var permission = new Ecommerce.Domain.Entities.Permission
         {
@@ -79,7 +86,14 @@ public class PermissionService : IPermissionService
     {
         var permission = await _permissionRepository.GetByIdAsync(id);
         if (permission == null)
-            throw new Exception("Permission not found");
+            throw new NotFoundException("Permission not found");
+
+        var all = await _permissionRepository.GetAllAsync();
+        if (all.Any(p =>
+                p.Id != id &&
+                string.Equals(p.Entity, entity, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(p.Action, action, StringComparison.OrdinalIgnoreCase)))
+            throw new ConflictException("Permission already exists");
 
         permission.Entity = entity;
         permission.Action = action;
@@ -92,7 +106,7 @@ public class PermissionService : IPermissionService
     {
         var permission = await _permissionRepository.GetByIdAsync(id);
         if (permission == null)
-            throw new Exception("Permission not found");
+            throw new NotFoundException("Permission not found");
 
         await _permissionRepository.DeleteAsync(permission);
     }

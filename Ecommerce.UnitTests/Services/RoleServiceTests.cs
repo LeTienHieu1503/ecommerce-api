@@ -2,6 +2,7 @@ using Ecommerce.Application.DTOs.User;
 using Ecommerce.Application.Interfaces;
 using Ecommerce.Application.Services;
 using Ecommerce.Domain.Entities;
+using Ecommerce.Domain.Exceptions;
 using Ecommerce.Domain.Interfaces;
 using FluentAssertions;
 using Moq;
@@ -70,6 +71,8 @@ public class RoleServiceTests
         // Arrange
         Role? savedRole = null;
 
+        _roleRepo.Setup(r => r.GetByNameAsync("Manager"))
+            .ReturnsAsync((Role?)null);
         _roleRepo.Setup(r => r.AddAsync(It.IsAny<Role>()))
             .Callback<Role>(r => savedRole = r)
             .Returns(Task.CompletedTask);
@@ -87,6 +90,29 @@ public class RoleServiceTests
         id.Should().Be(0);
     }
 
+    [Fact]
+    public async Task CreateRoleAsync_WhenNameIsEmpty_ThrowsArgumentException()
+    {
+        var act = () => _sut.CreateRoleAsync("   ");
+
+        await act.Should().ThrowAsync<ArgumentException>()
+            .WithParameterName("name");
+    }
+
+    [Fact]
+    public async Task CreateRoleAsync_WhenDuplicateName_ThrowsException()
+    {
+        _roleRepo.Setup(r => r.GetByNameAsync("Admin"))
+            .ReturnsAsync(CreateFakeRole(1, "Admin"));
+
+        var act = () => _sut.CreateRoleAsync("Admin");
+
+        await act.Should().ThrowAsync<ConflictException>()
+            .WithMessage("*Role name already exists*");
+
+        _roleRepo.Verify(r => r.AddAsync(It.IsAny<Role>()), Times.Never);
+    }
+
     // =============================================
     // ASSIGNPERMISSIONS TESTS
     // =============================================
@@ -99,6 +125,8 @@ public class RoleServiceTests
         var permissionIds = new List<int> { 1, 2, 3 };
         var affectedUserIds = new List<int> { 10, 20 };
 
+        _roleRepo.Setup(r => r.GetByIdAsync(roleId))
+            .ReturnsAsync(CreateFakeRole(roleId));
         _roleRepo.Setup(r => r.AssignPermissionsAsync(roleId, permissionIds))
             .Returns(Task.CompletedTask);
         _roleRepo.Setup(r => r.GetUserIdsByRoleIdAsync(roleId))
@@ -121,6 +149,8 @@ public class RoleServiceTests
     public async Task AssignPermissionsAsync_WhenNoAffectedUsers_DoesNotRemoveCache()
     {
         // Arrange
+        _roleRepo.Setup(r => r.GetByIdAsync(1))
+            .ReturnsAsync(CreateFakeRole(1));
         _roleRepo.Setup(r => r.AssignPermissionsAsync(It.IsAny<int>(), It.IsAny<IEnumerable<int>>()))
             .Returns(Task.CompletedTask);
 
@@ -147,6 +177,48 @@ public class RoleServiceTests
         _cache.Verify(c => c.RemoveAsync(It.IsAny<string>()), Times.Never);
     }
 
+    [Fact]
+    public async Task AssignPermissionsAsync_WhenRoleNotFound_ThrowsException()
+    {
+        _roleRepo.Setup(r => r.GetByIdAsync(99))
+            .ReturnsAsync((Role?)null);
+
+        var act = () => _sut.AssignPermissionsAsync(99, new List<int> { 1 });
+
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*Role not found*");
+
+        _roleRepo.Verify(
+            r => r.AssignPermissionsAsync(It.IsAny<int>(), It.IsAny<IEnumerable<int>>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task AssignPermissionsAsync_WhenPermissionAlreadyAssigned_ThrowsException()
+    {
+        var roleId = 1;
+        var role = new Role { Id = roleId, Name = "Admin" };
+        role.RolePermissions.Add(new RolePermission
+        {
+            RoleId = roleId,
+            PermissionId = 2,
+            Permission = new Permission { Id = 2, Name = "x" }
+        });
+
+        _roleRepo.Setup(r => r.GetByIdAsync(roleId))
+            .ReturnsAsync(role);
+
+        var act = () => _sut.AssignPermissionsAsync(roleId, new List<int> { 1, 2, 3 });
+
+        await act.Should().ThrowAsync<ConflictException>()
+            .WithMessage("*Permission(s) already assigned to role: 2*");
+
+        _roleRepo.Verify(
+            r => r.AssignPermissionsAsync(It.IsAny<int>(), It.IsAny<IEnumerable<int>>()),
+            Times.Never);
+        _cache.Verify(c => c.RemoveAsync(It.IsAny<string>()), Times.Never);
+    }
+
     // =============================================
     // REMOVEPERMISSIONS TESTS
     // =============================================
@@ -157,6 +229,22 @@ public class RoleServiceTests
         var roleId = 1;
         var permissionIds = new List<int> { 1, 2 };
         var affectedUserIds = new List<int> { 10 };
+
+        var role = new Role { Id = roleId, Name = "Admin" };
+        role.RolePermissions.Add(new RolePermission
+        {
+            RoleId = roleId,
+            PermissionId = 1,
+            Permission = new Permission { Id = 1, Name = "a" }
+        });
+        role.RolePermissions.Add(new RolePermission
+        {
+            RoleId = roleId,
+            PermissionId = 2,
+            Permission = new Permission { Id = 2, Name = "b" }
+        });
+        _roleRepo.Setup(r => r.GetByIdAsync(roleId))
+            .ReturnsAsync(role);
 
         _roleRepo.Setup(r => r.RemovePermissionsAsync(
                 roleId,
@@ -188,6 +276,46 @@ public class RoleServiceTests
         _cache.Verify(c => c.RemoveAsync(It.IsAny<string>()), Times.Never);
     }
 
+    [Fact]
+    public async Task RemovePermissionsAsync_WhenRoleNotFound_ThrowsException()
+    {
+        _roleRepo.Setup(r => r.GetByIdAsync(99))
+            .ReturnsAsync((Role?)null);
+
+        var act = () => _sut.RemovePermissionsAsync(99, new List<int> { 1 });
+
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*Role not found*");
+
+        _roleRepo.Verify(
+            r => r.RemovePermissionsAsync(It.IsAny<int>(), It.IsAny<IEnumerable<int>>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task RemovePermissionsAsync_WhenPermissionNotOnRole_ThrowsException()
+    {
+        var roleId = 1;
+        var role = new Role { Id = roleId, Name = "Admin" };
+        role.RolePermissions.Add(new RolePermission
+        {
+            RoleId = roleId,
+            PermissionId = 1,
+            Permission = new Permission { Id = 1, Name = "a" }
+        });
+        _roleRepo.Setup(r => r.GetByIdAsync(roleId))
+            .ReturnsAsync(role);
+
+        var act = () => _sut.RemovePermissionsAsync(roleId, new List<int> { 1, 99 });
+
+        await act.Should().ThrowAsync<BusinessException>()
+            .WithMessage("*Permission(s) not assigned to role: 99*");
+
+        _roleRepo.Verify(
+            r => r.RemovePermissionsAsync(It.IsAny<int>(), It.IsAny<IEnumerable<int>>()),
+            Times.Never);
+    }
+
     // =============================================
     // ASSIGNROLETOUSERASYNC TESTS
     // =============================================
@@ -196,6 +324,10 @@ public class RoleServiceTests
     public async Task AssignRoleToUserAsync_WhenValidInput_AssignsAndInvalidatesCache()
     {
         // Arrange
+        _userRepo.Setup(r => r.GetByIdAsync(1))
+            .ReturnsAsync(CreateFakeUser(1));
+        _roleRepo.Setup(r => r.GetByIdAsync(2))
+            .ReturnsAsync(CreateFakeRole(2, "Manager"));
         _roleRepo.Setup(r => r.AssignRoleToUserAsync(1, 2))
             .Returns(Task.CompletedTask);
         _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
@@ -217,6 +349,10 @@ public class RoleServiceTests
         // Arrange
         var userId = 42;
 
+        _userRepo.Setup(r => r.GetByIdAsync(userId))
+            .ReturnsAsync(CreateFakeUser(userId));
+        _roleRepo.Setup(r => r.GetByIdAsync(1))
+            .ReturnsAsync(CreateFakeRole(1));
         _roleRepo.Setup(r => r.AssignRoleToUserAsync(userId, It.IsAny<int>()))
             .Returns(Task.CompletedTask);
         _cache.Setup(c => c.RemoveAsync(It.IsAny<string>()))
@@ -227,6 +363,36 @@ public class RoleServiceTests
 
         // Assert — key phải chứa đúng userId
         _cache.Verify(c => c.RemoveAsync($"permissions:{userId}"), Times.Once);
+    }
+
+    [Fact]
+    public async Task AssignRoleToUserAsync_WhenUserNotFound_ThrowsException()
+    {
+        _userRepo.Setup(r => r.GetByIdAsync(1))
+            .ReturnsAsync((User?)null);
+
+        var act = () => _sut.AssignRoleToUserAsync(1, 2);
+
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*User not found*");
+
+        _roleRepo.Verify(r => r.AssignRoleToUserAsync(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AssignRoleToUserAsync_WhenRoleNotFound_ThrowsException()
+    {
+        _userRepo.Setup(r => r.GetByIdAsync(1))
+            .ReturnsAsync(CreateFakeUser(1));
+        _roleRepo.Setup(r => r.GetByIdAsync(2))
+            .ReturnsAsync((Role?)null);
+
+        var act = () => _sut.AssignRoleToUserAsync(1, 2);
+
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*Role not found*");
+
+        _roleRepo.Verify(r => r.AssignRoleToUserAsync(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
     }
 
     // =============================================
@@ -353,7 +519,7 @@ public class RoleServiceTests
         var act = () => _sut.UpdateRoleAsync(99, "NewName");
 
         // Assert
-        await act.Should().ThrowAsync<Exception>()
+        await act.Should().ThrowAsync<NotFoundException>()
             .WithMessage("*Role not found*");
     }
 
@@ -391,7 +557,7 @@ public class RoleServiceTests
         var act = () => _sut.DeleteRoleAsync(99);
 
         // Assert
-        await act.Should().ThrowAsync<Exception>()
+        await act.Should().ThrowAsync<NotFoundException>()
             .WithMessage("*Role not found*");
     }
 

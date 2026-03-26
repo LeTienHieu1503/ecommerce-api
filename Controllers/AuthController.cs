@@ -59,7 +59,8 @@ public class AuthController : BaseApiController
     public async Task<IActionResult> Refresh(TokenRequestDto request)
     {
         var clientIp = GetClientIp();
-        var result = await _authService.RefreshTokenAsync(request, clientIp);
+        var deviceId = HttpContext.Request.Headers["X-Device-Id"].FirstOrDefault();
+        var result = await _authService.RefreshTokenAsync(request, clientIp, deviceId);
         return Success(result, "Token refreshed successfully");
     }
 

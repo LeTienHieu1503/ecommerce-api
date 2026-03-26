@@ -7,6 +7,7 @@ namespace Ecommerce.Application.Interfaces
     {
         string GenerateToken(User user);
         string GenerateToken(User user, string sessionId, long sessionVersion, string ipHash);
+        string GenerateToken(User user, string sessionId, long sessionVersion, string ipHash, string? deviceHash);
         string GenerateRefreshToken();
         ClaimsPrincipal? GetPrincipalFromExpiredToken(string token);
     }

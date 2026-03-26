@@ -70,7 +70,7 @@ public class AuthService : IAuthService
 
         if (defaultRole == null)
         {
-            throw new Exception("Default role 'User' not found");
+            throw new BusinessException("Default role 'User' not found");
         }
 
         user.UserRoles.Add(new UserRole
@@ -116,9 +116,15 @@ public class AuthService : IAuthService
         var fingerprintSecret = _configuration["AuthSecurity:FingerprintSecret"] ?? "fallback-secret";
         var ipHash = IpBindingHelper.ComputeIpHash(clientIp, fingerprintSecret);
 
+        var deviceBindingSecret = _configuration["AuthSecurity:DeviceBindingSecret"] ?? "fallback-device-secret";
+        string? deviceHash = null;
+        if (!string.IsNullOrWhiteSpace(request.DeviceId))
+            deviceHash = DeviceBindingHelper.ComputeDeviceHash(request.DeviceId, deviceBindingSecret);
+
         user.CurrentSessionId = Guid.NewGuid().ToString("N");
         user.SessionVersion += 1;
         user.LastLoginIpHash = ipHash;
+        user.LastLoginDeviceHash = deviceHash;
 
         var refreshToken = _jwtTokenService.GenerateRefreshToken();
         user.RefreshToken = refreshToken;
@@ -126,7 +132,7 @@ public class AuthService : IAuthService
 
         await _userRepository.SaveChangesAsync();
 
-        var token = _jwtTokenService.GenerateToken(user, user.CurrentSessionId, user.SessionVersion, ipHash);
+        var token = _jwtTokenService.GenerateToken(user, user.CurrentSessionId, user.SessionVersion, ipHash, deviceHash);
 
         if (_cacheService != null)
         {
@@ -139,6 +145,7 @@ public class AuthService : IAuthService
                         SessionId = user.CurrentSessionId!,
                         SessionVersion = user.SessionVersion,
                         IpHash = ipHash,
+                        DeviceBindingHash = deviceHash,
                         UpdatedAt = DateTime.UtcNow
                     },
                     TimeSpan.FromDays(7));
@@ -160,9 +167,12 @@ public class AuthService : IAuthService
     }
 
     public Task<LoginResponseDto> RefreshTokenAsync(TokenRequestDto request)
-        => RefreshTokenAsync(request, "unknown");
+        => RefreshTokenAsync(request, "unknown", null);
 
-    public async Task<LoginResponseDto> RefreshTokenAsync(TokenRequestDto request, string clientIp)
+    public Task<LoginResponseDto> RefreshTokenAsync(TokenRequestDto request, string clientIp)
+        => RefreshTokenAsync(request, clientIp, null);
+
+    public async Task<LoginResponseDto> RefreshTokenAsync(TokenRequestDto request, string clientIp, string? deviceId)
     {
         var principal = _jwtTokenService.GetPrincipalFromExpiredToken(request.AccessToken);
         if (principal == null)
@@ -210,6 +220,7 @@ public class AuthService : IAuthService
                 SessionId = user.CurrentSessionId,
                 SessionVersion = user.SessionVersion,
                 IpHash = user.LastLoginIpHash,
+                DeviceBindingHash = user.LastLoginDeviceHash,
                 UpdatedAt = DateTime.UtcNow
             };
 
@@ -240,11 +251,28 @@ public class AuthService : IAuthService
             throw new SecurityTokenException("Session invalidated");
         }
 
+        // Kiểm tra device binding nếu phiên có device hash (backward-compatible: bỏ qua nếu null)
+        if (!string.IsNullOrWhiteSpace(session.DeviceBindingHash))
+        {
+            var tokenDeviceHash = principal.FindFirst("dbh")?.Value;
+            var deviceBindingSecret = _configuration["AuthSecurity:DeviceBindingSecret"] ?? "fallback-device-secret";
+            string? currentDeviceHash = !string.IsNullOrWhiteSpace(deviceId)
+                ? DeviceBindingHelper.ComputeDeviceHash(deviceId, deviceBindingSecret)
+                : null;
+
+            if (tokenDeviceHash != session.DeviceBindingHash ||
+                currentDeviceHash != session.DeviceBindingHash)
+            {
+                throw new SecurityTokenException("Session invalidated");
+            }
+        }
+
         var newAccessToken = _jwtTokenService.GenerateToken(
             user,
             session.SessionId,
             session.SessionVersion,
-            session.IpHash);
+            session.IpHash,
+            session.DeviceBindingHash);
 
         var newRefreshToken = _jwtTokenService.GenerateRefreshToken();
 
@@ -316,6 +344,7 @@ public class AuthService : IAuthService
             user.RefreshTokenExpiryTime = null;
             user.CurrentSessionId = null;
             user.LastLoginIpHash = null;
+            user.LastLoginDeviceHash = null;
             user.SessionVersion += 1;
             await _userRepository.SaveChangesAsync();
         }
