@@ -50,6 +50,28 @@ services:
       - ecommerce-network
     restart: unless-stopped
 
+  # Second Postgres for dotnet run on host (DBeaver: localhost:5434 / InternProjectDb_Local)
+  db-local:
+    image: postgres:16-alpine
+    container_name: ecommerce-db-local
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: InternProjectDb_Local
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_local_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d InternProjectDb_Local"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
   redis:
     image: redis:7-alpine
     container_name: ecommerce-redis
@@ -72,4 +94,5 @@ networks:
 
 volumes:
   postgres_data:
+  postgres_local_data:
   redis_data:

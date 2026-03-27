@@ -6,6 +6,8 @@ using Microsoft.EntityFrameworkCore;
 using Serilog;
 using Serilog.Context;
 
+EnvLoader.LoadLocalDotEnv();
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Logging

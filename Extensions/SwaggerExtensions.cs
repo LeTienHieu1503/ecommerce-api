@@ -1,4 +1,6 @@
 using System.Linq;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
@@ -14,7 +16,7 @@ public static class SwaggerExtensions
         {
             options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
             {
-                Description = "Enter JWT token",
+                Description = "JWT access token (paste token only, without 'Bearer ' prefix)",
                 Name = "Authorization",
                 In = ParameterLocation.Header,
                 Type = SecuritySchemeType.Http,
@@ -22,25 +24,19 @@ public static class SwaggerExtensions
                 BearerFormat = "JWT"
             });
 
-            options.AddSecurityRequirement(new OpenApiSecurityRequirement
+            options.AddSecurityDefinition("DeviceId", new OpenApiSecurityScheme
             {
-                {
-                    new OpenApiSecurityScheme
-                    {
-                        Reference = new OpenApiReference
-                        {
-                            Type = ReferenceType.SecurityScheme,
-                            Id = "Bearer"
-                        }
-                    },
-                    new string[] {}
-                }
+                Description =
+                    "Same value as deviceId at login. Leave empty if login had no deviceId. Applied once via Authorize for all secured calls.",
+                Name = "X-Device-Id",
+                In = ParameterLocation.Header,
+                Type = SecuritySchemeType.ApiKey
             });
 
-            options.OperationFilter<SwaggerDeviceIdHeaderOperationFilter>();
+            options.OperationFilter<SwaggerSecurityRequirementsOperationFilter>();
 
             options.TagActionsBy(api =>
-{
+            {
                 var controller = api.ActionDescriptor.RouteValues["controller"];
                 return controller switch
                 {
@@ -71,27 +67,67 @@ public static class SwaggerExtensions
     }
 }
 
-internal sealed class SwaggerDeviceIdHeaderOperationFilter : IOperationFilter
+/// <summary>
+/// Assigns OpenAPI security per operation: Bearer+DeviceId for [Authorize], DeviceId-only for refresh,
+/// none for public endpoints. DeviceId is set once in Swagger Authorize alongside JWT.
+/// </summary>
+internal sealed class SwaggerSecurityRequirementsOperationFilter : IOperationFilter
 {
+    private static readonly OpenApiSecurityScheme BearerSchemeRef = new()
+    {
+        Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+    };
+
+    private static readonly OpenApiSecurityScheme DeviceIdSchemeRef = new()
+    {
+        Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "DeviceId" }
+    };
+
     public void Apply(OpenApiOperation operation, OperationFilterContext context)
     {
-        if (operation.Parameters?.Any(p =>
-                p.In == ParameterLocation.Header &&
-                string.Equals(p.Name, "X-Device-Id", StringComparison.OrdinalIgnoreCase)) == true)
+        var metadata = context.ApiDescription.ActionDescriptor.EndpointMetadata;
+
+        if (metadata.Any(m => m is IAllowAnonymous))
         {
+            if (IsRefreshEndpoint(context))
+            {
+                operation.Security = new List<OpenApiSecurityRequirement>
+                {
+                    new OpenApiSecurityRequirement
+                    {
+                        [DeviceIdSchemeRef] = Array.Empty<string>()
+                    }
+                };
+            }
+
             return;
         }
 
-        operation.Parameters ??= new List<OpenApiParameter>();
-
-        operation.Parameters.Add(new OpenApiParameter
+        if (metadata.Any(m => m is AuthorizeAttribute) ||
+            ControllerHasAuthorize(context))
         {
-            Name = "X-Device-Id",
-            In = ParameterLocation.Header,
-            Description =
-                "Optional. If login included deviceId, send the same value here on every request (and refresh).",
-            Required = false,
-            Schema = new OpenApiSchema { Type = "string" }
-        });
+            operation.Security = new List<OpenApiSecurityRequirement>
+            {
+                new OpenApiSecurityRequirement
+                {
+                    [BearerSchemeRef] = Array.Empty<string>(),
+                    [DeviceIdSchemeRef] = Array.Empty<string>()
+                }
+            };
+        }
+    }
+
+    private static bool ControllerHasAuthorize(OperationFilterContext context)
+    {
+        if (context.ApiDescription.ActionDescriptor is not ControllerActionDescriptor cad)
+            return false;
+
+        return cad.ControllerTypeInfo.GetCustomAttributes(inherit: true).OfType<AuthorizeAttribute>().Any();
+    }
+
+    private static bool IsRefreshEndpoint(OperationFilterContext context)
+    {
+        var path = context.ApiDescription.RelativePath ?? string.Empty;
+        return path.Contains("auth/refresh", StringComparison.OrdinalIgnoreCase);
     }
 }
