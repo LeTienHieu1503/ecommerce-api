@@ -12,6 +12,25 @@ internal static class EnvLoader
 
         Env.Load(path);
         ApplyPostgresConnectionFromPassword();
+        ApplyStripeFromAliases();
+    }
+
+    private static void ApplyStripeFromAliases()
+    {
+        CopyEnvIfTargetEmpty("Stripe__SecretKey", "STRIPE_SECRET_KEY");
+        CopyEnvIfTargetEmpty("Stripe__PublishableKey", "STRIPE_PUBLISHABLE_KEY");
+        CopyEnvIfTargetEmpty("Stripe__WebhookSecret", "STRIPE_WEBHOOK_SECRET");
+    }
+
+    private static void CopyEnvIfTargetEmpty(string dotnetConfigKey, string aliasKey)
+    {
+        var existing = Environment.GetEnvironmentVariable(dotnetConfigKey);
+        if (!string.IsNullOrWhiteSpace(existing))
+            return;
+
+        var aliasValue = Environment.GetEnvironmentVariable(aliasKey);
+        if (!string.IsNullOrWhiteSpace(aliasValue))
+            Environment.SetEnvironmentVariable(dotnetConfigKey, aliasValue);
     }
 
     private static string? FindEnvFile()

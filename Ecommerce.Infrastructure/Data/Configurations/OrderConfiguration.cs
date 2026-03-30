@@ -31,7 +31,15 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
             .HasForeignKey(i => i.OrderId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.Property(o => o.StripePaymentIntentId)
+            .HasMaxLength(128);
+
+        builder.Property(o => o.PaymentStatus)
+            .IsRequired()
+            .HasConversion<int>();
+
         builder.HasIndex(o => o.UserId);
         builder.HasIndex(o => o.Status);
+        builder.HasIndex(o => o.StripePaymentIntentId);
     }
 }

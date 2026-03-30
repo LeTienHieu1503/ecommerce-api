@@ -9,4 +9,8 @@ public class Order
     public DateTime CreatedAt { get; set; }
     public OrderStatus Status { get; set; } = OrderStatus.Pending;
     public List<OrderItem> Items { get; set; } = new();
+
+    // Payment
+    public string? StripePaymentIntentId { get; set; }  // "pi_xxx"
+    public PaymentStatus PaymentStatus { get; set; } = PaymentStatus.Pending;
 }

@@ -13,8 +13,11 @@ public static class OrderMapper
             UserId = order.UserId,
             CreatedAt = order.CreatedAt,
             Status = order.Status.ToString(),
+            PaymentStatus = order.PaymentStatus.ToString(),
+            StripePaymentIntentId = order.StripePaymentIntentId,
             Items = order.Items.Select(i => new OrderItemDto
             {
+                Id = i.Id,
                 ProductId = i.ProductId,
                 Quantity = i.Quantity,
                 Price = i.Price

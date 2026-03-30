@@ -18,6 +18,11 @@ services:
       Jwt__Key: "${Jwt__Key}"
       AuthSecurity__FingerprintSecret: "${AuthSecurity__FingerprintSecret}"
       AuthSecurity__DeviceBindingSecret: "${AuthSecurity__DeviceBindingSecret}"
+
+      # Stripe — values from project .env (Compose substitutes ${...}); supports Stripe__* or STRIPE_* aliases
+      Stripe__SecretKey: "${Stripe__SecretKey:-${STRIPE_SECRET_KEY:-}}"
+      Stripe__PublishableKey: "${Stripe__PublishableKey:-${STRIPE_PUBLISHABLE_KEY:-}}"
+      Stripe__WebhookSecret: "${Stripe__WebhookSecret:-${STRIPE_WEBHOOK_SECRET:-}}"
     ports:
       - "5169:80"
     depends_on:

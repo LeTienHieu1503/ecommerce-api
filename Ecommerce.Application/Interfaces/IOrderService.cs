@@ -11,4 +11,10 @@ public interface IOrderService
     Task<IEnumerable<OrderDto>> GetOrdersByUserIdAsync(int userId);
     /// <param name="canCancelAnyOrder">When true (e.g. Admin), ownership is not enforced.</param>
     Task CancelOrderAsync(int orderId, int currentUserId, bool canCancelAnyOrder = false);
+
+    Task<CheckoutResponseDto> CreateCheckoutAsync(int orderId, int userId);
+
+    Task HandlePaymentSucceededAsync(string paymentIntentId);
+
+    Task HandlePaymentFailedAsync(string paymentIntentId);
 }

@@ -6,6 +6,8 @@ public class OrderDto
     public int UserId { get; set; }
     public DateTime CreatedAt { get; set; }
     public string Status { get; set; } = string.Empty;
+    public string PaymentStatus { get; set; } = string.Empty;
+    public string? StripePaymentIntentId { get; set; }
     public List<OrderItemDto> Items { get; set; } = new();
 }
 

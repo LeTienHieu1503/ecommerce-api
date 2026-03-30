@@ -369,6 +369,7 @@ FodyWeavers.xsd
 # Environment & Secrets
 .env
 .env.*
+!.env.example
 appsettings.*.json
 !appsettings.json
 !appsettings.Development.json

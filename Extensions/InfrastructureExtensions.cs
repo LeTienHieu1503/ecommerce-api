@@ -1,6 +1,7 @@
 using Ecommerce.Domain.Interfaces;
 using Ecommerce.Infrastructure.Caching;
 using Ecommerce.Infrastructure.Data;
+using Ecommerce.Infrastructure.Payment;
 using Ecommerce.Infrastructure.Repositories;
 using Ecommerce.Application.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -30,6 +31,9 @@ public static class InfrastructureExtensions
         services.AddScoped<IRoleRepository, RoleRepository>();
         services.AddScoped<IPermissionRepository, PermissionRepository>();
         services.AddScoped<IOrderRepository, OrderRepository>();
+
+        services.Configure<StripeSettings>(configuration.GetSection("Stripe"));
+        services.AddScoped<IPaymentService, StripePaymentService>();
 
         services.AddScoped<ITokenBlacklistService, TokenBlacklistService>();
 

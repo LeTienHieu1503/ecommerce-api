@@ -20,6 +20,7 @@ public class OrderServiceTests
     private readonly Mock<IProductRepository> _productRepo = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly Mock<ICacheService> _cache = new();
+    private readonly Mock<IPaymentService> _paymentService = new();
     private readonly Mock<ILogger<OrderService>> _logger = new();
     private readonly Mock<IUnitOfWorkTransaction> _transaction = new();
 
@@ -40,11 +41,16 @@ public class OrderServiceTests
         _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(1);
 
+        _paymentService
+            .Setup(p => p.GetReusablePaymentIntentAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>()))
+            .ReturnsAsync((PaymentIntentCreateResult?)null);
+
         _sut = new OrderService(
             _orderRepo.Object,
             _productRepo.Object,
             _unitOfWork.Object,
             _cache.Object,
+            _paymentService.Object,
             _logger.Object);
     }
 
@@ -68,12 +74,16 @@ public class OrderServiceTests
         int id = 1,
         int userId = 1,
         OrderStatus status = OrderStatus.Pending,
-        DateTime? createdAt = null)
+        DateTime? createdAt = null,
+        PaymentStatus paymentStatus = PaymentStatus.Pending,
+        string? stripePaymentIntentId = null)
         => new()
         {
             Id = id,
             UserId = userId,
             Status = status,
+            PaymentStatus = paymentStatus,
+            StripePaymentIntentId = stripePaymentIntentId,
             CreatedAt = createdAt ?? DateTime.UtcNow,
             Items = new List<OrderItem>
             {
@@ -184,7 +194,29 @@ public class OrderServiceTests
 
         // Assert
         await act.Should().ThrowAsync<BusinessException>()
-            .WithMessage("*Out of stock*");
+            .WithMessage("*cannot exceed available stock*Maximum: 1*requested: 5*");
+    }
+
+    [Fact]
+    public async Task CreateOrderAsync_WhenGroupedQuantityExceedsStock_ThrowsBusinessException()
+    {
+        var request = new CreateOrderRequest
+        {
+            UserId = 1,
+            Items = new List<OrderItemRequest>
+            {
+                new() { ProductId = 1, Quantity = 4 },
+                new() { ProductId = 1, Quantity = 4 }
+            }
+        };
+        var product = CreateFakeProduct(stock: 7);
+
+        _productRepo.Setup(p => p.GetByIdAsync(1)).ReturnsAsync(product);
+
+        var act = () => _sut.CreateOrderAsync(request);
+
+        await act.Should().ThrowAsync<BusinessException>()
+            .WithMessage("*Maximum: 7*requested: 8*");
     }
 
     [Fact]
@@ -628,5 +660,137 @@ public class OrderServiceTests
 
         _transaction.Verify(t => t.RollbackAsync(), Times.Once);
         _transaction.Verify(t => t.CommitAsync(), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateCheckoutAsync_WhenOrderMissing_ThrowsNotFoundException()
+    {
+        _orderRepo.Setup(r => r.GetByIdAsync(99)).ReturnsAsync((Order?)null);
+
+        var act = () => _sut.CreateCheckoutAsync(99, userId: 1);
+
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task CreateCheckoutAsync_WhenWrongUser_ThrowsNotFoundException()
+    {
+        var order = CreateFakeOrder(id: 1, userId: 5);
+        _orderRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(order);
+
+        var act = () => _sut.CreateCheckoutAsync(1, userId: 1);
+
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task CreateCheckoutAsync_WhenOrderNotPending_ThrowsBusinessException()
+    {
+        var order = CreateFakeOrder(status: OrderStatus.Paid);
+        _orderRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(order);
+
+        var act = () => _sut.CreateCheckoutAsync(1, userId: 1);
+
+        await act.Should().ThrowAsync<BusinessException>()
+            .WithMessage("*pending orders*");
+    }
+
+    [Fact]
+    public async Task CreateCheckoutAsync_WhenValid_ReturnsClientSecretAndPersistsIntent()
+    {
+        var order = CreateFakeOrder();
+        _orderRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(order);
+        _paymentService
+            .Setup(p => p.CreatePaymentIntentAsync(20000, "usd", "1", "order-1-usd20000-v2"))
+            .ReturnsAsync(new PaymentIntentCreateResult("secret_val", "pi_abc"));
+
+        var result = await _sut.CreateCheckoutAsync(1, userId: 1);
+
+        result.ClientSecret.Should().Be("secret_val");
+        order.StripePaymentIntentId.Should().Be("pi_abc");
+        order.PaymentStatus.Should().Be(PaymentStatus.Pending);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _cache.Verify(c => c.RemoveAsync(It.IsAny<string>()), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public async Task CreateCheckoutAsync_WhenExistingIntentReusable_ReturnsSecretWithoutCreate()
+    {
+        var order = CreateFakeOrder(stripePaymentIntentId: "pi_existing");
+        _orderRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(order);
+        _paymentService
+            .Setup(p => p.GetReusablePaymentIntentAsync("pi_existing", 20000, "usd"))
+            .ReturnsAsync(new PaymentIntentCreateResult("reuse_secret", "pi_existing"));
+
+        var result = await _sut.CreateCheckoutAsync(1, userId: 1);
+
+        result.ClientSecret.Should().Be("reuse_secret");
+        _paymentService.Verify(
+            p => p.CreatePaymentIntentAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
+            Times.Never);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandlePaymentSucceededAsync_WhenOrderFound_UpdatesStatus()
+    {
+        var order = CreateFakeOrder(paymentStatus: PaymentStatus.Pending, stripePaymentIntentId: "pi_abc");
+        _orderRepo.Setup(r => r.GetByStripePaymentIntentIdAsync("pi_abc")).ReturnsAsync(order);
+
+        await _sut.HandlePaymentSucceededAsync("pi_abc");
+
+        order.Status.Should().Be(OrderStatus.Paid);
+        order.PaymentStatus.Should().Be(PaymentStatus.Succeeded);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandlePaymentSucceededAsync_WhenAlreadyPaid_IsIdempotent()
+    {
+        var order = CreateFakeOrder(status: OrderStatus.Paid, paymentStatus: PaymentStatus.Succeeded, stripePaymentIntentId: "pi_abc");
+        _orderRepo.Setup(r => r.GetByStripePaymentIntentIdAsync("pi_abc")).ReturnsAsync(order);
+
+        await _sut.HandlePaymentSucceededAsync("pi_abc");
+
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandlePaymentSucceededAsync_WhenOrderCancelled_DoesNotMarkPaid()
+    {
+        var order = CreateFakeOrder(
+            status: OrderStatus.Cancelled,
+            paymentStatus: PaymentStatus.Cancelled,
+            stripePaymentIntentId: "pi_abc");
+        _orderRepo.Setup(r => r.GetByStripePaymentIntentIdAsync("pi_abc")).ReturnsAsync(order);
+
+        await _sut.HandlePaymentSucceededAsync("pi_abc");
+
+        order.Status.Should().Be(OrderStatus.Cancelled);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandlePaymentFailedAsync_WhenOrderFound_SetsFailed()
+    {
+        var order = CreateFakeOrder(paymentStatus: PaymentStatus.Pending, stripePaymentIntentId: "pi_abc");
+        _orderRepo.Setup(r => r.GetByStripePaymentIntentIdAsync("pi_abc")).ReturnsAsync(order);
+
+        await _sut.HandlePaymentFailedAsync("pi_abc");
+
+        order.PaymentStatus.Should().Be(PaymentStatus.Failed);
+        order.Status.Should().Be(OrderStatus.Pending);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandlePaymentFailedAsync_WhenAlreadySucceeded_IsNoOp()
+    {
+        var order = CreateFakeOrder(status: OrderStatus.Paid, paymentStatus: PaymentStatus.Succeeded, stripePaymentIntentId: "pi_abc");
+        _orderRepo.Setup(r => r.GetByStripePaymentIntentIdAsync("pi_abc")).ReturnsAsync(order);
+
+        await _sut.HandlePaymentFailedAsync("pi_abc");
+
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

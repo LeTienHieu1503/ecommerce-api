@@ -8,6 +8,7 @@ public interface IOrderRepository
 
     Task AddAsync(Order order);
     Task<Order?> GetByIdAsync(int id);
+    Task<Order?> GetByStripePaymentIntentIdAsync(string paymentIntentId);
     Task<IEnumerable<Order>> GetAllAsync();
     Task<IEnumerable<Order>> GetByUserIdAsync(int userId);
     Task UpdateAsync(Order order);

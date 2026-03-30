@@ -60,6 +60,8 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
 // Middleware Pipeline
 var app = builder.Build();
 
+LogStripeConfigurationStatus(app.Configuration);
+
 app.UseSwaggerConfig();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseHttpsRedirection();
@@ -102,3 +104,21 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.Run();
+
+static void LogStripeConfigurationStatus(IConfiguration configuration)
+{
+    var secret = configuration["Stripe:SecretKey"];
+    var webhook = configuration["Stripe:WebhookSecret"];
+
+    if (string.IsNullOrWhiteSpace(secret))
+    {
+        Log.Warning(
+            "Stripe:SecretKey is not set. Set Stripe__SecretKey or STRIPE_SECRET_KEY in .env (see .env.example). Checkout will fail until configured.");
+    }
+
+    if (string.IsNullOrWhiteSpace(webhook))
+    {
+        Log.Warning(
+            "Stripe:WebhookSecret is not set. Webhooks will return 400 Invalid signature until you set Stripe__WebhookSecret or STRIPE_WEBHOOK_SECRET (e.g. from `stripe listen`).");
+    }
+}

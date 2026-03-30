@@ -28,6 +28,13 @@ public class OrderRepository : IOrderRepository
             .FirstOrDefaultAsync(o => o.Id == id);
     }
 
+    public async Task<Order?> GetByStripePaymentIntentIdAsync(string paymentIntentId)
+    {
+        return await _context.Orders
+            .Include(o => o.Items)
+            .FirstOrDefaultAsync(o => o.StripePaymentIntentId == paymentIntentId);
+    }
+
     public async Task<IEnumerable<Order>> GetByUserIdAsync(int userId)
     {
         return await _context.Orders

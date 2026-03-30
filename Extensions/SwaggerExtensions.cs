@@ -47,6 +47,7 @@ public static class SwaggerExtensions
                     "Users" => new[] { "5. Users" },
                     "Roles" => new[] { "6. Roles" },
                     "Permissions" => new[] { "7. Permissions" },
+                    "Webhook" => new[] { "8. Webhooks" },
                     _ => new[] { $"{controller}" }
                 };
             });

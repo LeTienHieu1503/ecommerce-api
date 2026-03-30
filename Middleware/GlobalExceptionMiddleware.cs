@@ -3,6 +3,7 @@ using Ecommerce.Domain.Exceptions;
 using System;
 using System.Net;
 using System.Text.Json;
+using Stripe;
 
 namespace Ecommerce.API.Middleware;
 
@@ -46,6 +47,14 @@ public class GlobalExceptionMiddleware
                         path,
                         traceId);
                 }
+            }
+            else if (ex is StripeException stripeEx)
+            {
+                _logger.LogWarning(
+                    "Stripe error: {Message}. Path: {Path}, TraceId: {TraceId}",
+                    stripeEx.StripeError?.Message ?? stripeEx.Message,
+                    path,
+                    traceId);
             }
             else
             {
@@ -91,6 +100,12 @@ public class GlobalExceptionMiddleware
                 statusCode = (int)HttpStatusCode.NotFound;
                 errorCode = "NOT_FOUND";
                 message = exception.Message;
+                break;
+
+            case StripeException stripeEx:
+                statusCode = (int)HttpStatusCode.BadGateway;
+                errorCode = "STRIPE_ERROR";
+                message = stripeEx.StripeError?.Message ?? stripeEx.Message;
                 break;
         }
 

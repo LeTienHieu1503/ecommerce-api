@@ -20,6 +20,7 @@ public class OrderService : IOrderService
     private readonly IProductRepository _productRepo;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICacheService _cache;
+    private readonly IPaymentService _paymentService;
     private readonly ILogger<OrderService> _logger;
 
     private static readonly ConcurrentDictionary<int, SemaphoreSlim> _orderByIdLocks = new();
@@ -29,12 +30,14 @@ public class OrderService : IOrderService
         IProductRepository productRepo,
         IUnitOfWork unitOfWork,
         ICacheService cache,
+        IPaymentService paymentService,
         ILogger<OrderService> logger)
     {
         _orderRepo = orderRepo;
         _productRepo = productRepo;
         _unitOfWork = unitOfWork;
         _cache = cache;
+        _paymentService = paymentService;
         _logger = logger;
     }
 
@@ -82,8 +85,12 @@ public class OrderService : IOrderService
                 if (product == null)
                     throw new BusinessException($"Product {itemRequest.ProductId} not found.");
 
-                if (product.Stock < itemRequest.Quantity)
-                    throw new BusinessException($"Out of stock for Product '{product.Name}'. Available: {product.Stock}.");
+                var maxOrderQuantity = product.Stock;
+                if (itemRequest.Quantity > maxOrderQuantity)
+                {
+                    throw new BusinessException(
+                        $"Quantity for product '{product.Name}' cannot exceed available stock. Maximum: {maxOrderQuantity}, requested: {itemRequest.Quantity}.");
+                }
 
                 product.Stock -= itemRequest.Quantity;
 
@@ -215,6 +222,8 @@ public class OrderService : IOrderService
             UserId = o.UserId,
             CreatedAt = o.CreatedAt,
             Status = o.Status.ToString(),
+            PaymentStatus = o.PaymentStatus.ToString(),
+            StripePaymentIntentId = o.StripePaymentIntentId,
             Items = o.Items.Select(i => new OrderItemDto
             {
                 Id = i.Id,
@@ -268,6 +277,7 @@ public class OrderService : IOrderService
                 throw new BusinessException($"Cannot cancel order with status '{order.Status}'. Only Pending orders can be cancelled.");
 
             order.Status = OrderStatus.Cancelled;
+            order.PaymentStatus = PaymentStatus.Cancelled;
 
             foreach (var item in order.Items)
             {
@@ -339,6 +349,150 @@ public class OrderService : IOrderService
             await transaction.RollbackAsync();
             _logger.LogError(ex, "CancelOrder failed | OrderId={OrderId}, UserId={UserId}", orderId, currentUserId);
             throw;
+        }
+    }
+
+    public async Task<CheckoutResponseDto> CreateCheckoutAsync(int orderId, int userId)
+    {
+        var order = await _orderRepo.GetByIdAsync(orderId);
+        if (order == null || order.UserId != userId)
+            throw new NotFoundException("Order not found");
+
+        if (order.Status != OrderStatus.Pending)
+            throw new BusinessException("Only pending orders can be PaymentCompleted.");
+
+        if (order.PaymentStatus is not PaymentStatus.Pending and not PaymentStatus.Failed)
+            throw new BusinessException("Order is not in a payable state.");
+
+        var total = order.Items.Sum(i => i.Price * i.Quantity);
+        if (total <= 0)
+            throw new BusinessException("Order total must be greater than zero.");
+
+        var amountInCents = (long)Math.Round(total * 100m, MidpointRounding.AwayFromZero);
+        const string checkoutCurrency = "usd";
+
+        if (order.PaymentStatus == PaymentStatus.Pending
+            && !string.IsNullOrEmpty(order.StripePaymentIntentId))
+        {
+            var reuse = await _paymentService.GetReusablePaymentIntentAsync(
+                order.StripePaymentIntentId, amountInCents, checkoutCurrency);
+            if (reuse != null)
+            {
+                try
+                {
+                    await _cache.RemoveAsync(CacheKeysOrder.Order(orderId));
+                }
+                catch (Exception cacheEx)
+                {
+                    _logger.LogWarning(cacheEx, "Failed to invalidate cache for Order {OrderId} on checkout reuse", orderId);
+                }
+
+                return new CheckoutResponseDto { ClientSecret = reuse.ClientSecret };
+            }
+        }
+
+        // Include amount + version in key so Stripe idempotency never clashes with older API payloads or changed totals.
+        var idempotencyKey = order.PaymentStatus == PaymentStatus.Failed
+            ? $"order-{orderId}-retry-{Guid.NewGuid():N}"
+            : $"order-{orderId}-usd{amountInCents}-v2";
+
+        var intent = await _paymentService
+            .CreatePaymentIntentAsync(amountInCents, checkoutCurrency, orderId.ToString(), idempotencyKey);
+
+        order.StripePaymentIntentId = intent.PaymentIntentId;
+
+        await _unitOfWork.SaveChangesAsync();
+
+        try
+        {
+            await _cache.RemoveAsync(CacheKeysOrder.Order(orderId));
+        }
+        catch (Exception cacheEx)
+        {
+            _logger.LogWarning(cacheEx, "Failed to invalidate cache for Order {OrderId} after checkout start", orderId);
+        }
+
+        return new CheckoutResponseDto { ClientSecret = intent.ClientSecret };
+    }
+
+    public async Task HandlePaymentSucceededAsync(string paymentIntentId)
+    {
+        if (string.IsNullOrEmpty(paymentIntentId))
+        {
+            _logger.LogWarning("HandlePaymentSucceededAsync called with empty paymentIntentId");
+            return;
+        }
+
+        var order = await _orderRepo.GetByStripePaymentIntentIdAsync(paymentIntentId);
+        if (order == null)
+        {
+            _logger.LogWarning("No order found for PaymentIntent {PaymentIntentId}", paymentIntentId);
+            return;
+        }
+
+        if (order.Status == OrderStatus.Paid && order.PaymentStatus == PaymentStatus.Succeeded)
+            return;
+
+        if (order.StripePaymentIntentId != paymentIntentId)
+            return;
+
+        if (order.Status == OrderStatus.Cancelled || order.PaymentStatus == PaymentStatus.Cancelled)
+        {
+            _logger.LogWarning(
+                "Ignoring payment_intent.succeeded for cancelled Order {OrderId}, PaymentIntent {PaymentIntentId}",
+                order.Id, paymentIntentId);
+            return;
+        }
+
+        order.Status = OrderStatus.Paid;
+        order.PaymentStatus = PaymentStatus.Succeeded;
+
+        await _unitOfWork.SaveChangesAsync();
+        _logger.LogInformation(
+            "Order {OrderId} marked Paid after PaymentIntent {PaymentIntentId}",
+            order.Id, paymentIntentId);
+
+        try
+        {
+            await _cache.RemoveAsync(CacheKeysOrder.Order(order.Id));
+        }
+        catch (Exception cacheEx)
+        {
+            _logger.LogWarning(cacheEx, "Failed to invalidate cache for Order {OrderId} after payment success", order.Id);
+        }
+    }
+
+    public async Task HandlePaymentFailedAsync(string paymentIntentId)
+    {
+        if (string.IsNullOrEmpty(paymentIntentId))
+        {
+            _logger.LogWarning("HandlePaymentFailedAsync called with empty paymentIntentId");
+            return;
+        }
+
+        var order = await _orderRepo.GetByStripePaymentIntentIdAsync(paymentIntentId);
+        if (order == null)
+        {
+            _logger.LogWarning("No order found for failed PaymentIntent {PaymentIntentId}", paymentIntentId);
+            return;
+        }
+
+        if (order.PaymentStatus == PaymentStatus.Succeeded || order.Status == OrderStatus.Paid)
+            return;
+
+        if (order.Status == OrderStatus.Cancelled || order.PaymentStatus == PaymentStatus.Cancelled)
+            return;
+
+        order.PaymentStatus = PaymentStatus.Failed;
+        await _unitOfWork.SaveChangesAsync();
+
+        try
+        {
+            await _cache.RemoveAsync(CacheKeysOrder.Order(order.Id));
+        }
+        catch (Exception cacheEx)
+        {
+            _logger.LogWarning(cacheEx, "Failed to invalidate cache for Order {OrderId} after payment failure", order.Id);
         }
     }
 

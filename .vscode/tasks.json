@@ -36,6 +36,14 @@
       "presentation": { "reveal": "always", "panel": "shared" },
       "problemMatcher": []
     },
+    {
+      "label": "🗄️ EF Reset Database",
+      "type": "shell",
+      "command": "dotnet ef database drop --force --project Ecommerce.Infrastructure/Ecommerce.Infrastructure.csproj --startup-project Ecommerce.API.csproj; dotnet ef database update --project Ecommerce.Infrastructure/Ecommerce.Infrastructure.csproj --startup-project Ecommerce.API.csproj",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
     // ═══════════════════════════════
     // 🐳 DOCKER
     // ═══════════════════════════════

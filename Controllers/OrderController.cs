@@ -95,4 +95,18 @@ public class OrderController : BaseApiController
         var order = await _orderService.GetOrderByIdAsync(id);
         return Success(order, "Order cancelled successfully");
     }
+
+    [Authorize(Policy = "order.read")]
+    [HttpPost("{id:int}/checkout")]
+    public async Task<IActionResult> CreateCheckout(int id)
+    {
+        var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdString) || !int.TryParse(userIdString, out int userId))
+        {
+            return Unauthorized(new ApiResponse<string>(401, false, "Invalid user identifier", null));
+        }
+
+        var result = await _orderService.CreateCheckoutAsync(id, userId);
+        return Success(result, "Payment intent created");
+    }
 }
