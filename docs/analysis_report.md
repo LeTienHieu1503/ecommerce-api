@@ -1,90 +1,100 @@
 # Báo cáo Phân tích Dự án Ecommerce.API
 
-Dựa trên việc rà soát mã nguồn (cập nhật theo tiến độ hiện tại), dưới đây là đánh giá về trạng thái dự án, phần đã hoàn thiện, roadmap và hướng tối ưu.
+Dựa trên rà soát mã nguồn hiện tại (controllers, services, test, cấu hình), báo cáo tóm tắt trạng thái dự án, roadmap và hướng tối ưu.
 
 ## 1. Những gì đã làm được (Completed)
 
-Dự án có nền tảng **Clean Architecture**, tách lớp rõ ràng và nhiều best practice; đã bổ sung **tích hợp thanh toán Stripe** và **mô hình trạng thái đơn hàng / thanh toán** đầy đủ hơn so với phiên bản báo cáo trước.
+Dự án theo **Clean Architecture** (Domain / Application / Infrastructure / API), có **Stripe** cho thanh toán và **Redis** cho cache & blacklist token.
 
-### Kiến trúc & Pattern (Architecture & Patterns)
+### Kiến trúc & pattern
 
-- **Clean Architecture**: **Domain** (core), **Application** (use cases), **Infrastructure** (EF, Redis, Stripe), **API** (controllers, middleware).
-- **Repository & Unit of Work**: Trừu tượng truy cập dữ liệu; transaction qua `BeginTransactionAsync()` cho luồng cần ACID (tạo đơn, hủy đơn, …).
-- **Static Mapper**: Map Entity ↔ DTO thủ công (không dùng AutoMapper).
-- **BaseApiController + ApiResponse&lt;T&gt;**: Chuẩn hóa response (Success, ErrorCode, Message, Data).
+- **Repository + Unit of Work**: transaction `BeginTransactionAsync()` cho luồng cần ACID (tạo đơn, hủy đơn, …).
+- **Mapper tĩnh** (không AutoMapper).
+- **BaseApiController + ApiResponse&lt;T&gt;**: format response thống nhất.
+- **`Program.cs`**: cấu hình qua `Extensions` (`AddInfrastructure`, `AddApplicationServices`, `AddAuthConfig`, `AddSwaggerConfig`); **`IRequestDeviceContext`** + **`HttpRequestDeviceContext`** + `AddHttpContextAccessor` cho ngữ cảnh request/thiết bị.
 
-### Chức năng Core (Core Features)
+### API (Controllers)
 
-- **Bảo mật & Identity**:
-  - JWT + **Refresh Token Rotation**.
-  - **IP binding** (`iph`) và **session** (`sid` / `sv`) chống hijack / hỗ trợ logout từ xa.
-  - **Token blacklist** (Redis).
-  - Phân quyền theo **Policy** (permission-based), có role Admin.
-- **Catalog (Product & Category)**:
-  - Pagination, dynamic sorting, prefix search.
-  - Ràng buộc nghiệp vụ (ví dụ không xóa category còn product).
-- **Đơn hàng & kho (Orders & Inventory)**:
-  - Tạo đơn trong transaction: trừ kho + lưu order.
-  - **Optimistic concurrency** (RowVersion) chống oversell khi cập nhật đồng thời.
-  - Validate tổng số lượng theo **tồn kho** (`Product.Stock`); merge dòng trùng `ProductId` khi tạo đơn.
-- **Thanh toán Stripe (Payment)**:
-  - `IPaymentService` / `StripePaymentService`: tạo **PaymentIntent**, **idempotency key** theo order + số tiền (và retry khi `Failed`), tái sử dụng intent còn hợp lệ (`GetReusablePaymentIntentAsync`).
-  - Metadata `orderId` trên PaymentIntent.
-  - **Webhook** `POST /api/webhooks/stripe`: xử lý `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.succeeded`, `charge.failed`; đồng bộ `OrderStatus` / `PaymentStatus`.
-  - Trích `payment_intent` từ payload (cast + fallback JSON) khi cần.
-  - `GlobalExceptionMiddleware`: `StripeException` → HTTP 502 + `STRIPE_ERROR`.
-  - Cấu hình Stripe qua `Stripe__*` / alias `STRIPE_*` (`EnvLoader`, `.env.example`); **docker-compose** truyền biến Stripe vào container `api`.
-- **Checkout API**: `POST /api/Order/{id}/checkout` trả `client_secret` cho client Stripe.js.
-- **Hủy đơn (Cancel)**: `PUT /api/Order/{id}/cancel` — chỉ cho đơn **Pending**; hoàn kho; `OrderStatus.Cancelled` + `PaymentStatus.Cancelled`. Admin có thể hủy đơn user khác.
+- **Auth**: đăng nhập, refresh, đăng xuất, …
+- **Category / Product**: CRUD, phân trang, sort, tìm kiếm.
+- **Order**: tạo đơn, chi tiết, danh sách (Admin), theo user, **cancel** (Pending), **checkout** (Stripe).
+- **Roles / Permissions**: quản trị vai trò và quyền.
+- **Users** (Admin): danh sách user + role, gán role (`IRoleService`).
+- **Devices** (`api/devices`): thiết bị/phiên đăng nhập qua **`IDeviceSessionService`** (liệt kê, revoke một thiết bị, revoke tất cả). Controller đang gắn **`[Authorize(AdminOnly)]`** — cần khớp với yêu cầu sản phẩm (user tự xem thiết bị vs chỉ Admin).
+- **Webhooks**: `POST /api/webhooks/stripe` (anonymous, ký Stripe).
 
-### Trạng thái nghiệp vụ (Enums & DB)
+### Bảo mật & identity
 
-- **OrderStatus**: `Pending`, `Paid`, `Shipped`, `Delivered`, `Cancelled`
-- **PaymentStatus**: `Pending`, `Succeeded`, `Failed`, `Cancelled`
-- Entity **Order**: `StripePaymentIntentId`, đồng bộ qua webhook sau thanh toán thành công.
+- JWT + **refresh token rotation**; **IP binding** (`iph`), **session** (`sid` / `sv`); **token blacklist** (Redis).
+- Phân quyền **policy** theo permission + role **Admin**.
+
+### Catalog & đơn hàng
+
+- Product/Category: pagination, dynamic sorting, prefix search; rule nghiệp vụ (vd. không xóa category còn product).
+- Order: tạo đơn + trừ kho trong transaction; **optimistic concurrency** trên **Order** và **Product** qua PostgreSQL **`xmin`** (`UseXminAsConcurrencyToken`, không phải property `RowVersion` trên entity).
+- Validate số lượng theo **Stock**; gom dòng trùng `ProductId` khi tạo đơn.
+- **Cancel**: chỉ **Pending**; hoàn kho; `Cancelled` + `PaymentStatus.Cancelled`; Admin có thể hủy đơn người khác.
+
+### Thanh toán (Stripe)
+
+- **PaymentIntent**, metadata `orderId`; idempotency (`order-{id}-usd{cents}-v2` / `order-{id}-retry-{guid}` khi **Failed**); **`GetReusablePaymentIntentAsync`** khi Pending + đã có PI.
+- Webhook: `payment_intent.succeeded` / `failed`, `charge.succeeded` / `failed`; trích `payment_intent` (cast + fallback JSON); đồng bộ **OrderStatus** / **PaymentStatus**.
+- **GlobalExceptionMiddleware**: `StripeException` → 502 + `STRIPE_ERROR`.
+- Cấu hình **`Stripe__*`** / alias **`STRIPE_*`** (`EnvLoader`, `.env.example`); **docker-compose** inject Stripe vào service `api`.
+
+### Enums & Order entity
+
+- **OrderStatus**: Pending, Paid, Shipped, Delivered, Cancelled.
+- **PaymentStatus**: Pending, Succeeded, Failed, Cancelled.
+- **Order**: `StripePaymentIntentId`; cập nhật sau thanh toán qua webhook.
 
 ### Hạ tầng & DevOps
 
-- **Caching**: Redis (hoặc memory) cache-aside; versioning cho danh sách product; cache key cho order.
-- **Global exception middleware** → ApiResponse + mã HTTP phù hợp.
-- **Serilog**: console + rolling file, gắn `RequestId` (TraceIdentifier).
-- **Docker**: `docker-compose` (API, Postgres `db` + `db-local`, Redis), port API **5169**; task VS Code **Docker Redeploy** / EF **Reset Database**.
-- **Unit tests**: Nhiều test trong `Ecommerce.UnitTests` (Auth, Jwt, Order — kể cả checkout / webhook handlers, Cancel, Product, Category, Role, Permission).
+- Cache-aside (Redis hoặc memory), versioning list product, cache order.
+- Serilog (console + file), `RequestId`.
+- **Docker Compose**: API **5169**, Postgres (`db`, `db-local`), Redis; task VS Code **Docker Redeploy**, **EF Reset Database**.
+
+### Unit tests (`Ecommerce.UnitTests`)
+
+- Auth, Jwt, Product, Category, Role, Permission, Order (tạo đơn, cancel, concurrency, **checkout**, **HandlePaymentSucceeded/Failed**, reuse PI, **retry idempotency khi Failed**).
+- **Payment bổ sung**: **`WebhookControllerTests`**, **`StripePaymentServiceTests`** (`ValidateWebhookSignature`: chữ ký rỗng/null/sai HMAC), stub **`TestPaymentWebhookStub`**.
+- Project test tham chiếu **Application**, **Infrastructure**, **Ecommerce.API.csproj** (root) để test controller/webhook.
 
 ---
 
 ## 2. Những gì cần làm thêm (To-do / Roadmap)
 
-- **Giỏ hàng (Shopping Cart)**: Vẫn đặt hàng trực tiếp; chưa có `CartService` (Redis/DB).
-- **Refund & hủy đơn đã Paid**: Chưa gọi Stripe Refund; chưa API hủy đơn **sau khi đã thanh toán** (hoàn tiền + đồng bộ DB + webhook `refund.*` nếu cần).
-- **Vòng đời giao hàng (Fulfillment)**: Enum có `Shipped` / `Delivered` nhưng **chưa thấy API/service** chuyển trạng thái (chủ yếu cập nhật qua DB hoặc mở rộng sau).
-- **Quản lý User nâng cao**: Profile, đổi mật khẩu, quên mật khẩu (email OTP/link).
-- **Đánh giá sản phẩm (Reviews & Ratings)**.
-- **Dashboard / Analytics**: Doanh thu, sản phẩm bán chạy (Admin).
-- **Bổ sung test**: Tăng coverage cho Stripe integration (mock đã dùng nhiều ở `OrderServiceTests`; có thể thêm test `WebhookController` / `StripePaymentService` nếu cần).
+- **Giỏ hàng**: vẫn đặt hàng trực tiếp; chưa `CartService` (Redis/DB).
+- **Refund đơn đã Paid**: đã có **`POST /api/Order/{id}/refund`** (policy **`order.refund`**), Stripe full refund + webhook **`charge.refunded`** / **`refund.updated`**. *Hủy sau thanh toán* theo nghiệp vụ hiện tại = refund (trạng thái **Cancelled** + **Refunded**).
+- **Fulfillment**: có enum **Shipped** / **Delivered** nhưng chưa API/service chuyển trạng thái giao hàng rõ ràng.
+- **User (phía end-user)**: đã có **Admin** quản user/role; thiếu **profile**, **đổi mật khẩu**, **quên mật khẩu** (email).
+- **Reviews & ratings** sản phẩm.
+- **Dashboard / analytics** (Admin).
+- **Policy DeviceController**: xem lại **AdminOnly** vs user tự quản lý thiết bị của mình.
+- **Test / build**: có thể giảm cảnh báo **MSB3277** (phiên bản EF Core lệch giữa Tools/Infrastructure) khi tham chiếu API từ test project; hoặc đồng bộ package EF.
 
 ---
 
-## 3. Những gì cần tối ưu hóa (Optimizations)
+## 3. Tối ưu hóa (Optimizations)
 
-### Code & Maintainability
+### Code & maintainability
 
-- **Program.cs**: Đã gọn; cấu hình tách qua `Extensions` (`AddInfrastructure`, `AddAuthConfig`, `AddSwaggerConfig`, …). Có thể tiếp tục tách `LogStripeConfigurationStatus` nếu muốn đồng nhất.
-- **DRY**: Logic phân trang / cache versioning giữa `ProductService` và `CategoryService` vẫn có thể trừu tượng hóa (base helper).
-- **FluentValidation**: Có thể thay/thêm cho DataAnnotations trên DTO cho rule phức tạp.
+- Tách `LogStripeConfigurationStatus` ra extension nếu muốn `Program.cs` đồng nhất hoàn toàn.
+- DRY giữa **ProductService** / **CategoryService** (phân trang, cache version).
+- **FluentValidation** thay/thêm DataAnnotations cho DTO phức tạp.
 
-### Hiệu năng (Performance)
+### Hiệu năng
 
-- **Redis**: Cân nhắc L1 memory cache trước Redis cho một số đọc nóng.
-- **Read-heavy**: Có thể thử Dapper / raw SQL cho báo cáo lớn thay vì chỉ EF.
+- L1 cache trước Redis cho đọc nóng.
+- Dapper / SQL thuần cho báo cáo lớn.
 
-### Bảo mật (Security)
+### Bảo mật
 
-- **Rate limiting**: Chưa thấy cấu hình `AddRateLimiter` / CORS chi tiết trong `Program.cs` — nên bổ sung cho login/register và API nhạy cảm.
-- **CORS**: Cấu hình rõ policy theo môi trường (dev vs production).
+- **Rate limiting** (`AddRateLimiter`) cho login/register và endpoint nhạy cảm — **chưa** thấy trong `Program.cs`.
+- **CORS** policy rõ ràng theo môi trường — **chưa** cấu hình chi tiết.
 
 ---
 
 ## 4. Kết luận
 
-Dự án đã có **nền tảng bảo mật phiên**, **transaction + concurrency cho đơn hàng**, và **luồng thanh toán Stripe end-to-end** (checkout + webhook cập nhật DB). Phần còn lại để gần sàn TMĐT hoàn chỉnh chủ yếu là **cart**, **refund / hủy đơn đã trả tiền**, **fulfillment (ship/deliver)**, **user profile & recovery**, **reviews**, **analytics**, và **hardening** (rate limit, CORS).
+Hệ thống đã có **auth/session nâng cao**, **đơn hàng + concurrency (xmin)**, **Stripe checkout + webhook** (kể cả **refund** reconcile), **quản trị role/permission/user (Admin)**, **API thiết bị/phiên**, và **bộ unit test tương đối đầy đủ** kể cả payment/webhook. Để gần sàn TMĐT hoàn chỉnh còn **cart**, **fulfillment**, **self-service user**, **reviews**, **analytics**, và **hardening** (rate limit, CORS, tinh chỉnh policy thiết bị).

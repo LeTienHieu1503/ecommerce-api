@@ -17,4 +17,9 @@ public interface IOrderService
     Task HandlePaymentSucceededAsync(string paymentIntentId);
 
     Task HandlePaymentFailedAsync(string paymentIntentId);
+
+    Task<OrderDto> RefundPaidOrderAsync(int orderId, CancellationToken cancellationToken = default);
+
+    /// <summary>Webhook reconcile: marks order refunded + restores stock without calling Stripe.</summary>
+    Task HandleRefundCompletedAsync(string paymentIntentId, string? stripeRefundId, CancellationToken cancellationToken = default);
 }

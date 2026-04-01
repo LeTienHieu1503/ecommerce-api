@@ -59,7 +59,8 @@ public static class AuthExtensions
             {
                 "product.create", "product.read", "product.update", "product.delete",
                 "category.create", "category.read", "category.update", "category.delete",
-                "order.create", "order.read", "order.update", "order.delete"
+                "order.create", "order.read", "order.update", "order.delete",
+                "order.checkout", "order.refund"
             };
 
             foreach (var permission in permissions)

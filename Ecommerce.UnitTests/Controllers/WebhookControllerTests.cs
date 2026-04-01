@@ -38,6 +38,9 @@ public class WebhookControllerTests
         orders.Verify(
             o => o.HandlePaymentFailedAsync(It.IsAny<string>()),
             Times.Never);
+        orders.Verify(
+            o => o.HandleRefundCompletedAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]
@@ -150,6 +153,81 @@ public class WebhookControllerTests
         var result = await sut.StripeWebhook();
 
         result.Should().BeOfType<OkResult>();
+        orders.Verify(
+            o => o.HandleRefundCompletedAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task StripeWebhook_WhenChargeRefunded_CallsHandleRefundCompleted()
+    {
+        var payment = new TestPaymentWebhookStub
+        {
+            SignatureValid = true,
+            EventTypeOut = "charge.refunded",
+            PaymentIntentIdOut = "pi_refund_charge"
+        };
+        var orders = new Mock<IOrderService>();
+        var http = new DefaultHttpContext();
+        var payload =
+            """{"data":{"object":{"refunds":{"data":[{"id":"re_from_charge"}]}},"id":"evt"}}""";
+        SetJsonBody(http, payload);
+        var sut = new WebhookController(payment, orders.Object)
+        {
+            ControllerContext = new ControllerContext { HttpContext = http }
+        };
+
+        await sut.StripeWebhook();
+
+        orders.Verify(
+            o => o.HandleRefundCompletedAsync("pi_refund_charge", "re_from_charge", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task StripeWebhook_WhenRefundUpdatedNotSucceeded_DoesNotCallHandleRefundCompleted()
+    {
+        var payment = new TestPaymentWebhookStub
+        {
+            SignatureValid = true,
+            EventTypeOut = "refund.updated",
+            PaymentIntentIdOut = "pi_ru"
+        };
+        var orders = new Mock<IOrderService>(MockBehavior.Strict);
+        var http = new DefaultHttpContext();
+        SetJsonBody(http, """{"data":{"object":{"id":"re_x","status":"pending"}}}""");
+        var sut = new WebhookController(payment, orders.Object)
+        {
+            ControllerContext = new ControllerContext { HttpContext = http }
+        };
+
+        var result = await sut.StripeWebhook();
+
+        result.Should().BeOfType<OkResult>();
+    }
+
+    [Fact]
+    public async Task StripeWebhook_WhenRefundUpdatedSucceeded_CallsHandleRefundCompleted()
+    {
+        var payment = new TestPaymentWebhookStub
+        {
+            SignatureValid = true,
+            EventTypeOut = "refund.updated",
+            PaymentIntentIdOut = "pi_ru_ok"
+        };
+        var orders = new Mock<IOrderService>();
+        var http = new DefaultHttpContext();
+        SetJsonBody(http, """{"data":{"object":{"id":"re_ok","status":"succeeded"}}}""");
+        var sut = new WebhookController(payment, orders.Object)
+        {
+            ControllerContext = new ControllerContext { HttpContext = http }
+        };
+
+        await sut.StripeWebhook();
+
+        orders.Verify(
+            o => o.HandleRefundCompletedAsync("pi_ru_ok", "re_ok", It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]

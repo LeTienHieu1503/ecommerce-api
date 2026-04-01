@@ -24,4 +24,8 @@ internal sealed class TestPaymentWebhookStub : IPaymentService
     public Task<PaymentIntentCreateResult?> GetReusablePaymentIntentAsync(
         string paymentIntentId, long expectedAmountCents, string currency) =>
         throw new NotSupportedException();
+
+    public Task<RefundCreateResult> CreateRefundForPaymentIntentAsync(
+        string paymentIntentId, string idempotencyKey, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
 }

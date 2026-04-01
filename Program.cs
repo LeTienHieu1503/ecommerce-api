@@ -105,6 +105,7 @@ using (var scope = app.Services.CreateScope())
 
     await AdminSeeder.SeedAdminAsync(db);
     await PermissionSeeder.SeedPermissionsAsync(db);
+    await PolicyPermissionSeeder.EnsurePolicyPermissionsAsync(db);
 }
 
 app.Run();

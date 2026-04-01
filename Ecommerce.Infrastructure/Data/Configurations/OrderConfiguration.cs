@@ -34,6 +34,9 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.StripePaymentIntentId)
             .HasMaxLength(128);
 
+        builder.Property(o => o.StripeRefundId)
+            .HasMaxLength(255);
+
         builder.Property(o => o.PaymentStatus)
             .IsRequired()
             .HasConversion<int>();

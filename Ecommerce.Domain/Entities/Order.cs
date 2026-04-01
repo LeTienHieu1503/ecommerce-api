@@ -12,5 +12,6 @@ public class Order
 
     // Payment
     public string? StripePaymentIntentId { get; set; }  // "pi_xxx"
+    public string? StripeRefundId { get; set; }         // "re_xxx"
     public PaymentStatus PaymentStatus { get; set; } = PaymentStatus.Pending;
 }

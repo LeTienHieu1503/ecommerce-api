@@ -817,4 +817,111 @@ public class OrderServiceTests
 
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    [Fact]
+    public async Task HandlePaymentSucceededAsync_WhenRefunded_DoesNotMarkPaid()
+    {
+        var order = CreateFakeOrder(
+            status: OrderStatus.Cancelled,
+            paymentStatus: PaymentStatus.Refunded,
+            stripePaymentIntentId: "pi_abc");
+        _orderRepo.Setup(r => r.GetByStripePaymentIntentIdAsync("pi_abc")).ReturnsAsync(order);
+
+        await _sut.HandlePaymentSucceededAsync("pi_abc");
+
+        order.Status.Should().Be(OrderStatus.Cancelled);
+        order.PaymentStatus.Should().Be(PaymentStatus.Refunded);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RefundPaidOrderAsync_WhenOrderNotFound_ThrowsNotFoundException()
+    {
+        _orderRepo.Setup(o => o.GetByIdAsync(99)).ReturnsAsync((Order?)null);
+
+        var act = () => _sut.RefundPaidOrderAsync(99);
+
+        await act.Should().ThrowAsync<NotFoundException>().WithMessage("*Order 99 not found*");
+        _paymentService.Verify(
+            p => p.CreateRefundForPaymentIntentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task RefundPaidOrderAsync_WhenAlreadyRefunded_DoesNotCallStripe()
+    {
+        var order = CreateFakeOrder(
+            status: OrderStatus.Cancelled,
+            paymentStatus: PaymentStatus.Refunded,
+            stripePaymentIntentId: "pi_x");
+        _orderRepo.Setup(o => o.GetByIdAsync(1)).ReturnsAsync(order);
+
+        var dto = await _sut.RefundPaidOrderAsync(1);
+
+        dto.PaymentStatus.Should().Be(PaymentStatus.Refunded.ToString());
+        _paymentService.Verify(
+            p => p.CreateRefundForPaymentIntentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task RefundPaidOrderAsync_WhenShipped_ThrowsBusinessException()
+    {
+        var order = CreateFakeOrder(
+            status: OrderStatus.Shipped,
+            paymentStatus: PaymentStatus.Succeeded,
+            stripePaymentIntentId: "pi_x");
+        _orderRepo.Setup(o => o.GetByIdAsync(1)).ReturnsAsync(order);
+
+        var act = () => _sut.RefundPaidOrderAsync(1);
+
+        await act.Should().ThrowAsync<BusinessException>().WithMessage("*Only paid orders*");
+        _paymentService.Verify(
+            p => p.CreateRefundForPaymentIntentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task RefundPaidOrderAsync_WhenValid_RefundsRestoresStockAndSetsRefundId()
+    {
+        var product = CreateFakeProduct(stock: 8);
+        var order = CreateFakeOrder(
+            status: OrderStatus.Paid,
+            paymentStatus: PaymentStatus.Succeeded,
+            stripePaymentIntentId: "pi_pay");
+        _orderRepo.Setup(o => o.GetByIdAsync(1)).ReturnsAsync(order);
+        _productRepo.Setup(p => p.GetByIdAsync(1)).ReturnsAsync(product);
+        _paymentService
+            .Setup(p => p.CreateRefundForPaymentIntentAsync("pi_pay", "refund-order-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RefundCreateResult("re_new"));
+        _cache.Setup(c => c.RemoveAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
+        _cache.Setup(c => c.IncrementAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>())).ReturnsAsync(1L);
+
+        var dto = await _sut.RefundPaidOrderAsync(1);
+
+        order.Status.Should().Be(OrderStatus.Cancelled);
+        order.PaymentStatus.Should().Be(PaymentStatus.Refunded);
+        order.StripeRefundId.Should().Be("re_new");
+        product.Stock.Should().Be(10);
+        dto.StripeRefundId.Should().Be("re_new");
+        _transaction.Verify(t => t.CommitAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task RefundPaidOrderAsync_WhenStripeFails_DoesNotOpenTransaction()
+    {
+        var order = CreateFakeOrder(
+            status: OrderStatus.Paid,
+            paymentStatus: PaymentStatus.Succeeded,
+            stripePaymentIntentId: "pi_pay");
+        _orderRepo.Setup(o => o.GetByIdAsync(1)).ReturnsAsync(order);
+        _paymentService
+            .Setup(p => p.CreateRefundForPaymentIntentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("stripe down"));
+
+        var act = () => _sut.RefundPaidOrderAsync(1);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*stripe down*");
+        _unitOfWork.Verify(u => u.BeginTransactionAsync(), Times.Never);
+    }
 }

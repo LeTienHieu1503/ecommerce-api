@@ -15,6 +15,7 @@ public static class OrderMapper
             Status = order.Status.ToString(),
             PaymentStatus = order.PaymentStatus.ToString(),
             StripePaymentIntentId = order.StripePaymentIntentId,
+            StripeRefundId = order.StripeRefundId,
             Items = order.Items.Select(i => new OrderItemDto
             {
                 Id = i.Id,

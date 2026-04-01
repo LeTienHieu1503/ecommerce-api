@@ -87,6 +87,30 @@ public class StripePaymentService : IPaymentService
         return null;
     }
 
+    public async Task<RefundCreateResult> CreateRefundForPaymentIntentAsync(
+        string paymentIntentId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new RefundCreateOptions
+        {
+            PaymentIntent = paymentIntentId
+        };
+
+        var requestOptions = new RequestOptions
+        {
+            IdempotencyKey = idempotencyKey
+        };
+
+        var service = new RefundService();
+        var refund = await service.CreateAsync(options, requestOptions, cancellationToken);
+
+        _logger.LogInformation("Created Refund {RefundId} for PaymentIntent {PaymentIntentId}",
+            refund.Id, paymentIntentId);
+
+        return new RefundCreateResult(refund.Id);
+    }
+
     public Task<bool> ValidateWebhookSignature(
         string payload, string? signature,
         out string eventType, out string paymentIntentId)
@@ -109,18 +133,22 @@ public class StripePaymentService : IPaymentService
                 paymentIntentId = pi.Id ?? string.Empty;
             else if (obj is Charge charge && !string.IsNullOrEmpty(charge.PaymentIntentId))
                 paymentIntentId = charge.PaymentIntentId;
+            else if (obj is Refund refund && !string.IsNullOrEmpty(refund.PaymentIntentId))
+                paymentIntentId = refund.PaymentIntentId;
 
             if (string.IsNullOrEmpty(paymentIntentId))
             {
                 if (eventType.StartsWith("payment_intent.", StringComparison.Ordinal))
                     paymentIntentId = TryParsePaymentIntentIdFromPayload(payload);
-                else if (eventType is "charge.succeeded" or "charge.failed")
+                else if (eventType is "charge.succeeded" or "charge.failed" or "charge.refunded")
                     paymentIntentId = TryParsePaymentIntentIdFromChargePayload(payload);
+                else if (eventType == "refund.updated")
+                    paymentIntentId = TryParsePaymentIntentIdFromRefundPayload(payload);
             }
 
             if (string.IsNullOrEmpty(paymentIntentId) &&
                 (eventType.StartsWith("payment_intent.", StringComparison.Ordinal) ||
-                 eventType is "charge.succeeded" or "charge.failed"))
+                 eventType is "charge.succeeded" or "charge.failed" or "charge.refunded" or "refund.updated"))
             {
                 _logger.LogWarning(
                     "Stripe webhook {EventType}: signature OK but PaymentIntent id missing; DB will not update for this event.",
@@ -150,6 +178,23 @@ public class StripePaymentService : IPaymentService
     }
 
     private static string TryParsePaymentIntentIdFromChargePayload(string payload)
+    {
+        try
+        {
+            var token = JObject.Parse(payload)["data"]?["object"]?["payment_intent"];
+            if (token == null || token.Type == JTokenType.Null)
+                return string.Empty;
+            if (token.Type == JTokenType.String)
+                return token.Value<string>() ?? string.Empty;
+            return token["id"]?.Value<string>() ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string TryParsePaymentIntentIdFromRefundPayload(string payload)
     {
         try
         {

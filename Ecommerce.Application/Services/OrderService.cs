@@ -232,6 +232,7 @@ public class OrderService : IOrderService
             Status = o.Status.ToString(),
             PaymentStatus = o.PaymentStatus.ToString(),
             StripePaymentIntentId = o.StripePaymentIntentId,
+            StripeRefundId = o.StripeRefundId,
             Items = o.Items.Select(i => new OrderItemDto
             {
                 Id = i.Id,
@@ -288,47 +289,12 @@ public class OrderService : IOrderService
             order.Status = OrderStatus.Cancelled;
             order.PaymentStatus = PaymentStatus.Cancelled;
 
-            foreach (var item in order.Items)
-            {
-                var product = await _productRepo.GetByIdAsync(item.ProductId);
-                if (product != null)
-                {
-                    product.Stock += item.Quantity;
-                }
-                else
-                {
-                    _logger.LogWarning("Product {ProductId} not found during stock restore for OrderId={OrderId}",
-                        item.ProductId, orderId);
-                }
-            }
+            await RestoreStockForOrderItemsAsync(order, orderId);
 
             await _unitOfWork.SaveChangesAsync();
             await transaction.CommitAsync();
 
-            try
-            {
-                await _cache.RemoveAsync(CacheKeysOrder.Order(orderId));
-                _logger.LogInformation("Cache invalidated | {CacheKey}", CacheKeysOrder.Order(orderId));
-            }
-            catch (Exception cacheEx)
-            {
-                _logger.LogWarning(cacheEx, "Failed to invalidate cache for Order {OrderId}", orderId);
-            }
-
-            foreach (var item in order.Items)
-            {
-                try
-                {
-                    await _cache.RemoveAsync(CacheKeysProduct.Product(item.ProductId));
-                    _logger.LogInformation("Cache invalidated | {CacheKey}", CacheKeysProduct.Product(item.ProductId));
-                }
-                catch (Exception cacheEx)
-                {
-                    _logger.LogWarning(cacheEx, "Failed to invalidate cache for Product {ProductId}", item.ProductId);
-                }
-            }
-            
-            await BumpProductListVersionAsync();
+            await InvalidateOrderAndProductCachesAsync(order, orderId);
 
             _logger.LogInformation("Order cancelled successfully | OrderId={OrderId}, UserId={UserId}", orderId, currentUserId);
         }
@@ -441,6 +407,14 @@ public class OrderService : IOrderService
             return;
         }
 
+        if (order.PaymentStatus == PaymentStatus.Refunded)
+        {
+            _logger.LogWarning(
+                "Ignoring payment_intent.succeeded for refunded Order {OrderId}, PaymentIntent {PaymentIntentId}",
+                order.Id, paymentIntentId);
+            return;
+        }
+
         if (order.Status == OrderStatus.Paid && order.PaymentStatus == PaymentStatus.Succeeded)
             return;
 
@@ -489,6 +463,9 @@ public class OrderService : IOrderService
             return;
         }
 
+        if (order.PaymentStatus == PaymentStatus.Refunded)
+            return;
+
         if (order.PaymentStatus == PaymentStatus.Succeeded || order.Status == OrderStatus.Paid)
             return;
 
@@ -506,6 +483,239 @@ public class OrderService : IOrderService
         {
             _logger.LogWarning(cacheEx, "Failed to invalidate cache for Order {OrderId} after payment failure", order.Id);
         }
+    }
+
+    public async Task<OrderDto> RefundPaidOrderAsync(int orderId, CancellationToken cancellationToken = default)
+    {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(OrderService), nameof(RefundPaidOrderAsync));
+        _logger.LogInformation("RefundPaidOrder started | OrderId={OrderId}", orderId);
+
+        var preview = await _orderRepo.GetByIdAsync(orderId);
+        if (preview == null)
+            throw new NotFoundException($"Order {orderId} not found.");
+
+        if (preview.PaymentStatus == PaymentStatus.Refunded)
+            return OrderMapper.ToDto(preview);
+
+        EnsureEligibleForRefund(preview, orderId);
+
+        var refundResult = await _paymentService.CreateRefundForPaymentIntentAsync(
+            preview.StripePaymentIntentId!,
+            $"refund-order-{orderId}",
+            cancellationToken);
+
+        await using var transaction = await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            var order = await _orderRepo.GetByIdAsync(orderId);
+            if (order == null)
+                throw new NotFoundException($"Order {orderId} not found.");
+
+            if (order.PaymentStatus == PaymentStatus.Refunded)
+            {
+                await transaction.CommitAsync();
+                await InvalidateOrderAndProductCachesAsync(order, orderId);
+                return OrderMapper.ToDto(order);
+            }
+
+            EnsureEligibleForRefund(order, orderId);
+
+            ApplyRefundState(order, refundResult.RefundId);
+            await RestoreStockForOrderItemsAsync(order, orderId);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync();
+
+            await InvalidateOrderAndProductCachesAsync(order, orderId);
+
+            _logger.LogInformation("Order {OrderId} refunded via API", orderId);
+            return OrderMapper.ToDto(order);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await transaction.RollbackAsync();
+            _logger.LogError("Concurrency conflict during RefundPaidOrder | OrderId={OrderId}", orderId);
+            throw new BusinessException("Order was updated by another process. Please retry.");
+        }
+        catch (NotFoundException)
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+        catch (BusinessException)
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            _logger.LogError(ex, "RefundPaidOrder failed | OrderId={OrderId}", orderId);
+            throw;
+        }
+    }
+
+    public async Task HandleRefundCompletedAsync(
+        string paymentIntentId,
+        string? stripeRefundId,
+        CancellationToken cancellationToken = default)
+    {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(OrderService), nameof(HandleRefundCompletedAsync));
+        if (string.IsNullOrEmpty(paymentIntentId))
+        {
+            _logger.LogWarning("HandleRefundCompletedAsync called with empty paymentIntentId");
+            return;
+        }
+
+        var order = await _orderRepo.GetByStripePaymentIntentIdAsync(paymentIntentId);
+        if (order == null)
+        {
+            _logger.LogWarning("No order found for refund webhook PaymentIntent {PaymentIntentId}", paymentIntentId);
+            return;
+        }
+
+        if (order.PaymentStatus == PaymentStatus.Refunded)
+        {
+            if (!string.IsNullOrEmpty(stripeRefundId) && string.IsNullOrEmpty(order.StripeRefundId))
+            {
+                order.StripeRefundId = stripeRefundId;
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                try
+                {
+                    await _cache.RemoveAsync(CacheKeysOrder.Order(order.Id));
+                }
+                catch (Exception cacheEx)
+                {
+                    _logger.LogWarning(cacheEx, "Failed to invalidate cache for Order {OrderId} after refund id patch", order.Id);
+                }
+            }
+
+            return;
+        }
+
+        if (order.Status != OrderStatus.Paid || order.PaymentStatus != PaymentStatus.Succeeded)
+        {
+            _logger.LogInformation(
+                "Skipping refund reconcile for Order {OrderId}: Status={Status}, PaymentStatus={PaymentStatus}",
+                order.Id, order.Status, order.PaymentStatus);
+            return;
+        }
+
+        await using var transaction = await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            var locked = await _orderRepo.GetByStripePaymentIntentIdAsync(paymentIntentId);
+            if (locked == null)
+            {
+                await transaction.RollbackAsync();
+                return;
+            }
+
+            if (locked.PaymentStatus == PaymentStatus.Refunded)
+            {
+                await transaction.CommitAsync();
+                return;
+            }
+
+            if (locked.Status != OrderStatus.Paid || locked.PaymentStatus != PaymentStatus.Succeeded)
+            {
+                await transaction.RollbackAsync();
+                return;
+            }
+
+            ApplyRefundState(locked, stripeRefundId);
+            await RestoreStockForOrderItemsAsync(locked, locked.Id);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync();
+
+            await InvalidateOrderAndProductCachesAsync(locked, locked.Id);
+
+            _logger.LogInformation(
+                "Order {OrderId} marked refunded from webhook for PaymentIntent {PaymentIntentId}",
+                locked.Id, paymentIntentId);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await transaction.RollbackAsync();
+            _logger.LogError("Concurrency conflict during HandleRefundCompleted | PaymentIntent={PaymentIntentId}", paymentIntentId);
+            throw new BusinessException("Order was updated by another process. Please retry.");
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            _logger.LogError(ex, "HandleRefundCompleted failed | PaymentIntent={PaymentIntentId}", paymentIntentId);
+            throw;
+        }
+    }
+
+    private static void EnsureEligibleForRefund(Order order, int orderId)
+    {
+        if (order.Status != OrderStatus.Paid)
+        {
+            throw new BusinessException(
+                $"Only paid orders can be refunded. Order {orderId} has status '{order.Status}'.");
+        }
+
+        if (order.PaymentStatus != PaymentStatus.Succeeded)
+        {
+            throw new BusinessException(
+                $"Order {orderId} is not in a refundable payment state (payment status: '{order.PaymentStatus}').");
+        }
+
+        if (string.IsNullOrEmpty(order.StripePaymentIntentId))
+            throw new BusinessException($"Order {orderId} has no Stripe payment intent to refund.");
+    }
+
+    private static void ApplyRefundState(Order order, string? stripeRefundId)
+    {
+        order.Status = OrderStatus.Cancelled;
+        order.PaymentStatus = PaymentStatus.Refunded;
+        if (!string.IsNullOrEmpty(stripeRefundId))
+            order.StripeRefundId = stripeRefundId;
+    }
+
+    private async Task RestoreStockForOrderItemsAsync(Order order, int orderId)
+    {
+        foreach (var item in order.Items)
+        {
+            var product = await _productRepo.GetByIdAsync(item.ProductId);
+            if (product != null)
+                product.Stock += item.Quantity;
+            else
+            {
+                _logger.LogWarning("Product {ProductId} not found during stock restore for OrderId={OrderId}",
+                    item.ProductId, orderId);
+            }
+        }
+    }
+
+    private async Task InvalidateOrderAndProductCachesAsync(Order order, int orderId)
+    {
+        try
+        {
+            await _cache.RemoveAsync(CacheKeysOrder.Order(orderId));
+            _logger.LogInformation("Cache invalidated | {CacheKey}", CacheKeysOrder.Order(orderId));
+        }
+        catch (Exception cacheEx)
+        {
+            _logger.LogWarning(cacheEx, "Failed to invalidate cache for Order {OrderId}", orderId);
+        }
+
+        foreach (var item in order.Items)
+        {
+            try
+            {
+                await _cache.RemoveAsync(CacheKeysProduct.Product(item.ProductId));
+                _logger.LogInformation("Cache invalidated | {CacheKey}", CacheKeysProduct.Product(item.ProductId));
+            }
+            catch (Exception cacheEx)
+            {
+                _logger.LogWarning(cacheEx, "Failed to invalidate cache for Product {ProductId}", item.ProductId);
+            }
+        }
+
+        await BumpProductListVersionAsync();
     }
 
     private async Task BumpProductListVersionAsync()

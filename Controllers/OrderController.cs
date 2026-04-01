@@ -96,7 +96,7 @@ public class OrderController : BaseApiController
         return Success(order, "Order cancelled successfully");
     }
 
-    [Authorize(Policy = "order.read")]
+    [Authorize(Policy = "order.checkout")]
     [HttpPost("{id:int}/checkout")]
     public async Task<IActionResult> CreateCheckout(int id)
     {
@@ -108,5 +108,13 @@ public class OrderController : BaseApiController
 
         var result = await _orderService.CreateCheckoutAsync(id, userId);
         return Success(result, "Payment intent created");
+    }
+
+    [Authorize(Policy = "order.refund")]
+    [HttpPost("{id:int}/refund")]
+    public async Task<IActionResult> RefundPaidOrder(int id)
+    {
+        var order = await _orderService.RefundPaidOrderAsync(id, HttpContext.RequestAborted);
+        return Success(order, "Order refunded successfully");
     }
 }
