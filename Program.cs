@@ -1,5 +1,7 @@
 using Ecommerce.API.Extensions;
 using Ecommerce.API.Middleware;
+using Ecommerce.API.Services;
+using Ecommerce.Application.Interfaces;
 using Ecommerce.Infrastructure.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -26,6 +28,8 @@ Log.Logger = new LoggerConfiguration()
 builder.Host.UseSerilog();
 
 // Services
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IRequestDeviceContext, HttpRequestDeviceContext>();
 builder.Services
     .AddInfrastructure(builder.Configuration)
     .AddApplicationServices()

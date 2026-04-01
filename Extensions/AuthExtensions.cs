@@ -1,9 +1,13 @@
 using Ecommerce.API.Authorization.Handlers;
 using Ecommerce.API.Authorization.Policies;
 using Ecommerce.API.Authorization.Requirements;
+using Ecommerce.Application.Common.Http;
 using Ecommerce.Application.Common.Security;
 using Ecommerce.Application.DTOs.Auth;
+using Ecommerce.Application.Exceptions;
 using Ecommerce.Application.Interfaces;
+using Ecommerce.API.Responses;
+using Ecommerce.Domain.Enums;
 using Ecommerce.Domain.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -99,6 +103,10 @@ public static class AuthExtensions
                     .GetRequiredService<IUserRepository>();
                 var configuration = httpContext.RequestServices
                     .GetRequiredService<IConfiguration>();
+                var deviceBindingValidation = httpContext.RequestServices
+                    .GetRequiredService<IDeviceBindingValidationService>();
+                var deviceSessionService = httpContext.RequestServices
+                    .GetRequiredService<IDeviceSessionService>();
 
                 // Kiểm tra blacklist
                 if (context.SecurityToken != null)
@@ -135,23 +143,26 @@ public static class AuthExtensions
 
                 // Validate session state
                 var sessionCacheKey = $"auth:session:user:{userId}";
+                var sessionLoadedFromRedis = false;
                 UserSessionState? sessionState = null;
                 try
                 {
                     sessionState = await cacheService
                         .GetAsync<UserSessionState>(sessionCacheKey);
+                    sessionLoadedFromRedis = sessionState != null;
                 }
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Failed to read session cache for {UserId}", userId);
                 }
 
+                var userEntity = await userRepository.GetByIdAsync(userId);
+
                 if (sessionState == null)
                 {
-                    var user = await userRepository.GetByIdAsync(userId);
-                    if (user == null ||
-                        string.IsNullOrWhiteSpace(user.CurrentSessionId) ||
-                        string.IsNullOrWhiteSpace(user.LastLoginIpHash))
+                    if (userEntity == null ||
+                        string.IsNullOrWhiteSpace(userEntity.CurrentSessionId) ||
+                        string.IsNullOrWhiteSpace(userEntity.LastLoginIpHash))
                     {
                         context.Fail("Session not found.");
                         return;
@@ -159,9 +170,10 @@ public static class AuthExtensions
 
                     sessionState = new UserSessionState
                     {
-                        SessionId = user.CurrentSessionId,
-                        SessionVersion = user.SessionVersion,
-                        IpHash = user.LastLoginIpHash,
+                        SessionId = userEntity.CurrentSessionId,
+                        SessionVersion = userEntity.SessionVersion,
+                        IpHash = userEntity.LastLoginIpHash,
+                        DeviceBindingHash = userEntity.LastLoginDeviceHash,
                         UpdatedAt = DateTime.UtcNow
                     };
 
@@ -174,6 +186,12 @@ public static class AuthExtensions
                     {
                         logger.LogWarning(ex, "Failed to write session cache for {UserId}", userId);
                     }
+                }
+
+                if (userEntity == null)
+                {
+                    context.Fail("Session not found.");
+                    return;
                 }
 
                 // Validate IP binding
@@ -196,24 +214,44 @@ public static class AuthExtensions
                     return;
                 }
 
-                // Validate device binding (backward-compatible: chỉ kiểm tra khi phiên có DeviceBindingHash)
-                if (!string.IsNullOrWhiteSpace(sessionState.DeviceBindingHash))
+                var deviceIdHeader = httpContext.Request.Headers["X-Device-Id"].FirstOrDefault();
+                var jwtDbh = context.Principal?.FindFirst("dbh")?.Value;
+                try
                 {
-                    var tokenDeviceHash = context.Principal?.FindFirst("dbh")?.Value;
-                    var deviceId = httpContext.Request.Headers["X-Device-Id"].FirstOrDefault();
-                    var deviceBindingSecret = configuration["AuthSecurity:DeviceBindingSecret"]
-                        ?? "fallback-device-secret";
-                    string? currentDeviceHash = !string.IsNullOrWhiteSpace(deviceId)
-                        ? DeviceBindingHelper.ComputeDeviceHash(deviceId, deviceBindingSecret)
-                        : null;
+                    await deviceBindingValidation.ValidateAsync(
+                        deviceIdHeader,
+                        jwtDbh,
+                        sessionLoadedFromRedis,
+                        sessionState,
+                        userEntity);
+                }
+                catch (DeviceValidationException ex)
+                {
+                    httpContext.Items["DeviceValidationReason"] = ex.Reason;
+                    context.Fail(ex.Message);
+                    return;
+                }
 
-                    if (tokenDeviceHash != sessionState.DeviceBindingHash ||
-                        currentDeviceHash != sessionState.DeviceBindingHash)
-                    {
-                        logger.LogWarning("Device binding mismatch for user {User}", username);
-                        context.Fail("Session invalidated.");
-                        return;
-                    }
+                var isDeviceBound = !string.IsNullOrWhiteSpace(jwtDbh) ||
+                                    !string.IsNullOrWhiteSpace(sessionState.DeviceBindingHash);
+                httpContext.Items[RequestDeviceContextKeys.IsDeviceBound] = isDeviceBound;
+                if (isDeviceBound)
+                {
+                    httpContext.Items[RequestDeviceContextKeys.NormalizedDeviceId] =
+                        DeviceBindingHelper.NormalizeDeviceId(deviceIdHeader);
+                }
+                else
+                {
+                    httpContext.Items.Remove(RequestDeviceContextKeys.NormalizedDeviceId);
+                }
+
+                try
+                {
+                    await deviceSessionService.UpdateLastSeenAsync(sid);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "UpdateLastSeenAsync failed for session {SessionId}", sid);
                 }
 
                 logger.LogInformation("JWT validated for user {User}", username);
@@ -227,9 +265,32 @@ public static class AuthExtensions
                     context.HttpContext.Request.Path);
 
                 context.HandleResponse();
-                context.Response.StatusCode = 401;
                 context.Response.ContentType = "application/json";
 
+                if (context.HttpContext.Items.TryGetValue("DeviceValidationReason", out var reasonObj) &&
+                    reasonObj is DeviceValidationResult reason)
+                {
+                    var (statusCode, errorCode, message) = reason switch
+                    {
+                        DeviceValidationResult.MissingHeader => (400, "DEVICE_HEADER_MISSING", "X-Device-Id header is required"),
+                        DeviceValidationResult.DeviceMismatch => (401, "DEVICE_MISMATCH", "Token used from unrecognized device"),
+                        DeviceValidationResult.SessionRevoked => (401, "SESSION_REVOKED", "Session has been revoked. Please login again"),
+                        DeviceValidationResult.SessionRotated => (401, "SESSION_ROTATED", "Session was replaced. Please re-authenticate"),
+                        _ => (401, "DEVICE_INVALID", "Device validation failed")
+                    };
+
+                    context.Response.StatusCode = statusCode;
+                    await context.Response.WriteAsJsonAsync(new ErrorResponse
+                    {
+                        statusCode = statusCode,
+                        Success = false,
+                        ErrorCode = errorCode,
+                        Message = message
+                    });
+                    return;
+                }
+
+                context.Response.StatusCode = 401;
                 await context.Response.WriteAsJsonAsync(new
                 {
                     statusCode = 401,

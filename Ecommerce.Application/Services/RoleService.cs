@@ -1,8 +1,10 @@
+using Ecommerce.Application.Common.Http;
 using Ecommerce.Application.DTOs.User;
 using Ecommerce.Application.Interfaces;
 using Ecommerce.Domain.Entities;
 using Ecommerce.Domain.Exceptions;
 using Ecommerce.Domain.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace Ecommerce.Application.Services;
 
@@ -11,17 +13,27 @@ public class RoleService : IRoleService
     private readonly IRoleRepository _roleRepository;
     private readonly IUserRepository _userRepository;
     private readonly ICacheService _cacheService;
+    private readonly ILogger<RoleService> _logger;
+    private readonly IRequestDeviceContext _requestDeviceContext;
     private const string PermissionsKeyPrefix = "permissions:";
 
-    public RoleService(IRoleRepository roleRepository, IUserRepository userRepository, ICacheService cacheService)
+    public RoleService(
+        IRoleRepository roleRepository,
+        IUserRepository userRepository,
+        ICacheService cacheService,
+        ILogger<RoleService> logger,
+        IRequestDeviceContext requestDeviceContext)
     {
         _roleRepository = roleRepository;
         _userRepository = userRepository;
         _cacheService = cacheService;
+        _logger = logger;
+        _requestDeviceContext = requestDeviceContext;
     }
 
     public async Task<int> CreateRoleAsync(string name)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(RoleService), nameof(CreateRoleAsync));
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Role name is required", nameof(name));
 
@@ -42,6 +54,7 @@ public class RoleService : IRoleService
 
     public async Task AssignPermissionsAsync(int roleId, IEnumerable<int> permissionIds)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(RoleService), nameof(AssignPermissionsAsync));
         var ids = permissionIds?.Distinct().ToList() ?? new List<int>();
         if (ids.Count == 0)
             return;
@@ -61,6 +74,7 @@ public class RoleService : IRoleService
 
     public async Task RemovePermissionsAsync(int roleId, IEnumerable<int> permissionIds)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(RoleService), nameof(RemovePermissionsAsync));
         var ids = permissionIds?.Distinct().ToList() ?? new List<int>();
         if (ids.Count == 0)
             return;
@@ -80,6 +94,7 @@ public class RoleService : IRoleService
 
     public async Task AssignRoleToUserAsync(int userId, int roleId)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(RoleService), nameof(AssignRoleToUserAsync));
         var user = await _userRepository.GetByIdAsync(userId);
         if (user == null)
             throw new NotFoundException("User not found");
@@ -94,6 +109,7 @@ public class RoleService : IRoleService
 
     public async Task<IReadOnlyList<(int Id, string Name, IReadOnlyList<string> Permissions)>> GetRolesAsync()
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(RoleService), nameof(GetRolesAsync));
         var roles = await _roleRepository.GetAllWithPermissionsAsync();
 
         return roles
@@ -112,6 +128,7 @@ public class RoleService : IRoleService
 
     public async Task<IReadOnlyList<UserDto>> GetAllUsersWithRolesAsync()
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(RoleService), nameof(GetAllUsersWithRolesAsync));
         var users = await _userRepository.GetAllWithRolesAsync();
 
         return users.Select(u => new UserDto(
@@ -123,6 +140,7 @@ public class RoleService : IRoleService
 
     public async Task UpdateRoleAsync(int id, string name)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(RoleService), nameof(UpdateRoleAsync));
         var role = await _roleRepository.GetByIdAsync(id);
         if (role == null)
             throw new NotFoundException("Role not found");
@@ -133,6 +151,7 @@ public class RoleService : IRoleService
 
     public async Task DeleteRoleAsync(int id)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(RoleService), nameof(DeleteRoleAsync));
         var role = await _roleRepository.GetByIdAsync(id);
         if (role == null)
             throw new NotFoundException("Role not found");

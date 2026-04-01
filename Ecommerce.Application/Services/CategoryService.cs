@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Ecommerce.Application.Common.Mappers;
 using Ecommerce.Application.Common.Logging;
 using Ecommerce.Application.Common.Caching;
+using Ecommerce.Application.Common.Http;
 using System.Collections.Concurrent;
 
 namespace Ecommerce.Application.Services;
@@ -18,21 +19,25 @@ public class CategoryService : ICategoryService
     private readonly ICategoryRepository _categoryRepository;
     private readonly ILogger<CategoryService> _logger;
     private readonly ICacheService _cache;
+    private readonly IRequestDeviceContext _requestDeviceContext;
     private static readonly SemaphoreSlim _categoryListLock = new SemaphoreSlim(1, 1);
     private static readonly ConcurrentDictionary<int, SemaphoreSlim> _categoryByIdLocks = new();
 
     public CategoryService(
     ICategoryRepository categoryRepository,
     ILogger<CategoryService> logger,
-    ICacheService cache)
+    ICacheService cache,
+    IRequestDeviceContext requestDeviceContext)
     {
         _categoryRepository = categoryRepository;
         _logger = logger;
         _cache = cache;
+        _requestDeviceContext = requestDeviceContext;
     }
 
     public async Task<PagedResult<CategoryResponseDto>> GetAllAsync(CategoryQuery query)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(CategoryService), nameof(GetAllAsync));
         var version = await _cache.GetAsync<long?>(CacheKeysCategory.CategoryListVersion()) ?? 0;
 
         var cacheKey = CacheKeysCategory.CategoryList(query, version);
@@ -91,6 +96,7 @@ public class CategoryService : ICategoryService
 
     public async Task<CategoryResponseDto> GetByIdAsync(int id)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(CategoryService), nameof(GetByIdAsync));
         var cacheKey = CacheKeysCategory.Category(id);
 
         var cached = await _cache.GetAsync<CategoryResponseDto>(cacheKey);
@@ -135,6 +141,7 @@ public class CategoryService : ICategoryService
 
     public async Task<CategoryResponseDto> CreateAsync(CreateCategoryDto dto)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(CategoryService), nameof(CreateAsync));
         _logger.LogInformation(LogMessages.CategoryCreating, dto.Name);
 
         var exists = await _categoryRepository.ExistsAsync(
@@ -161,6 +168,7 @@ public class CategoryService : ICategoryService
 
     public async Task<CategoryResponseDto> UpdateAsync(int id, UpdateCategoryDto dto)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(CategoryService), nameof(UpdateAsync));
         _logger.LogInformation(LogMessages.CategoryUpdating, id);
 
         var category = await _categoryRepository.GetByIdAsync(id);
@@ -191,6 +199,7 @@ public class CategoryService : ICategoryService
 
     public async Task DeleteAsync(int id)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(CategoryService), nameof(DeleteAsync));
         _logger.LogInformation(LogMessages.CategoryDeleting, id);
 
         var category = await _categoryRepository.GetByIdAsync(id);

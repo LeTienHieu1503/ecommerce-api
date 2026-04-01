@@ -6,6 +6,7 @@ using Ecommerce.Application.Common.Sorting;
 using Ecommerce.Domain.Common.Pagination;
 using Microsoft.AspNetCore.Mvc;
 using Ecommerce.API.Responses;
+using System.Security.Claims;
 
 namespace Ecommerce.API.Controllers;
 
@@ -35,4 +36,13 @@ public class BaseApiController : ControllerBase
         var response = new ApiResponse<object>(StatusCodes.Status200OK, true, message, null);
         return Ok(response);
     }
+
+    protected int? GetCurrentUserId()
+    {
+        var v = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return int.TryParse(v, out var id) ? id : null;
+    }
+
+    protected string GetCurrentSessionId()
+        => User.FindFirst("sid")?.Value ?? string.Empty;
 }

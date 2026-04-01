@@ -9,6 +9,7 @@ using Ecommerce.Application.Common.Sorting;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using Ecommerce.Application.Common.Caching;
+using Ecommerce.Application.Common.Http;
 using System.Collections.Concurrent;
 using Ecommerce.Application.Common.Mappers;
 
@@ -22,6 +23,7 @@ public class OrderService : IOrderService
     private readonly ICacheService _cache;
     private readonly IPaymentService _paymentService;
     private readonly ILogger<OrderService> _logger;
+    private readonly IRequestDeviceContext _requestDeviceContext;
 
     private static readonly ConcurrentDictionary<int, SemaphoreSlim> _orderByIdLocks = new();
 
@@ -31,7 +33,8 @@ public class OrderService : IOrderService
         IUnitOfWork unitOfWork,
         ICacheService cache,
         IPaymentService paymentService,
-        ILogger<OrderService> logger)
+        ILogger<OrderService> logger,
+        IRequestDeviceContext requestDeviceContext)
     {
         _orderRepo = orderRepo;
         _productRepo = productRepo;
@@ -39,10 +42,12 @@ public class OrderService : IOrderService
         _cache = cache;
         _paymentService = paymentService;
         _logger = logger;
+        _requestDeviceContext = requestDeviceContext;
     }
 
     public async Task<OrderDto> CreateOrderAsync(CreateOrderRequest request)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(OrderService), nameof(CreateOrderAsync));
         var correlationId = Guid.NewGuid().ToString();
         _logger.LogInformation("CreateOrder started | CorrelationId={CorrelationId} | UserId={UserId}",
             correlationId, request.UserId);
@@ -147,6 +152,7 @@ public class OrderService : IOrderService
 
     public async Task<OrderDto?> GetOrderByIdAsync(int id)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(OrderService), nameof(GetOrderByIdAsync));
         var cacheKey = CacheKeysOrder.Order(id);
 
         var cached = await _cache.GetAsync<OrderDto>(cacheKey);
@@ -188,12 +194,14 @@ public class OrderService : IOrderService
 
     public async Task<IEnumerable<OrderDto>> GetOrdersByUserIdAsync(int userId)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(OrderService), nameof(GetOrdersByUserIdAsync));
         var orders = await _orderRepo.GetByUserIdAsync(userId);
         return orders.Select(o => OrderMapper.ToDto(o));
     }
 
     public async Task<PagedResult<OrderDto>> GetAllOrdersAsync(OrderQuery query)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(OrderService), nameof(GetAllOrdersAsync));
         var orders = _orderRepo.GetQueryable();
 
         if (query.Status.HasValue)
@@ -253,6 +261,7 @@ public class OrderService : IOrderService
 
     public async Task CancelOrderAsync(int orderId, int currentUserId, bool canCancelAnyOrder = false)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(OrderService), nameof(CancelOrderAsync));
         _logger.LogInformation(
             "CancelOrder started | OrderId={OrderId}, UserId={UserId}, CanCancelAnyOrder={CanCancelAny}",
             orderId, currentUserId, canCancelAnyOrder);
@@ -354,6 +363,7 @@ public class OrderService : IOrderService
 
     public async Task<CheckoutResponseDto> CreateCheckoutAsync(int orderId, int userId)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(OrderService), nameof(CreateCheckoutAsync));
         var order = await _orderRepo.GetByIdAsync(orderId);
         if (order == null || order.UserId != userId)
             throw new NotFoundException("Order not found");
@@ -417,6 +427,7 @@ public class OrderService : IOrderService
 
     public async Task HandlePaymentSucceededAsync(string paymentIntentId)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(OrderService), nameof(HandlePaymentSucceededAsync));
         if (string.IsNullOrEmpty(paymentIntentId))
         {
             _logger.LogWarning("HandlePaymentSucceededAsync called with empty paymentIntentId");
@@ -464,6 +475,7 @@ public class OrderService : IOrderService
 
     public async Task HandlePaymentFailedAsync(string paymentIntentId)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(OrderService), nameof(HandlePaymentFailedAsync));
         if (string.IsNullOrEmpty(paymentIntentId))
         {
             _logger.LogWarning("HandlePaymentFailedAsync called with empty paymentIntentId");

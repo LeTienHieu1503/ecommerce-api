@@ -3,6 +3,7 @@ using Ecommerce.Infrastructure.Caching;
 using Ecommerce.Infrastructure.Data;
 using Ecommerce.Infrastructure.Payment;
 using Ecommerce.Infrastructure.Repositories;
+using Ecommerce.Infrastructure.Services;
 using Ecommerce.Application.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
@@ -36,6 +37,7 @@ public static class InfrastructureExtensions
         services.AddScoped<IPaymentService, StripePaymentService>();
 
         services.AddScoped<ITokenBlacklistService, TokenBlacklistService>();
+        services.AddScoped<IDeviceSessionService, DeviceSessionService>();
 
         return services;
     }

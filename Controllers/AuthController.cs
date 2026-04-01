@@ -11,10 +11,12 @@ namespace Ecommerce.API.Controllers;
 public class AuthController : BaseApiController
 {
     private readonly IAuthService _authService;
+    private readonly IRequestDeviceContext _requestDeviceContext;
 
-    public AuthController(IAuthService authService)
+    public AuthController(IAuthService authService, IRequestDeviceContext requestDeviceContext)
     {
         _authService = authService;
+        _requestDeviceContext = requestDeviceContext;
     }
 
     [HttpPost("register")]
@@ -29,7 +31,7 @@ public class AuthController : BaseApiController
     public async Task<IActionResult> Login(LoginRequestDto request)
     {
         var clientIp = GetClientIp();
-        var result = await _authService.LoginAsync(request, clientIp);
+        var result = await _authService.LoginAsync(request, clientIp, Request.Headers.UserAgent.ToString());
         return Success(result, "Login successfully");
     }
 
@@ -51,7 +53,9 @@ public class AuthController : BaseApiController
             Id = userId,
             Email = email,
             Role = role,
-            Roles = roles
+            Roles = roles,
+            DeviceBound = _requestDeviceContext.IsDeviceBound,
+            NormalizedDeviceId = _requestDeviceContext.NormalizedDeviceId
         });
     }
     [AllowAnonymous]

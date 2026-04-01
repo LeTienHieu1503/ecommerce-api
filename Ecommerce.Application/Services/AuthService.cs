@@ -1,3 +1,4 @@
+using Ecommerce.Application.Common.Http;
 using Ecommerce.Application.Common.Security;
 using Ecommerce.Application.Common.Logging;
 using Ecommerce.Application.DTOs.Auth;
@@ -22,6 +23,9 @@ public class AuthService : IAuthService
     private readonly ITokenBlacklistService _blacklistService;
     private readonly IConfiguration _configuration;
     private readonly ICacheService? _cacheService;
+    private readonly IDeviceBindingValidationService _deviceBindingValidation;
+    private readonly IDeviceSessionService _deviceSessionService;
+    private readonly IRequestDeviceContext _requestDeviceContext;
 
     private static string SessionCacheKey(int userId) => $"auth:session:user:{userId}";
 
@@ -32,7 +36,10 @@ public class AuthService : IAuthService
         IRoleRepository roleRepository,
         ITokenBlacklistService blacklistService,
         IConfiguration configuration,
-        ICacheService cacheService)
+        ICacheService cacheService,
+        IDeviceBindingValidationService deviceBindingValidation,
+        IDeviceSessionService deviceSessionService,
+        IRequestDeviceContext requestDeviceContext)
     {
         _userRepository = userRepository;
         _jwtTokenService = jwtTokenService;
@@ -41,13 +48,20 @@ public class AuthService : IAuthService
         _blacklistService = blacklistService;
         _configuration = configuration ?? new ConfigurationBuilder().Build();
         _cacheService = cacheService;
+        _deviceBindingValidation = deviceBindingValidation;
+        _deviceSessionService = deviceSessionService;
+        _requestDeviceContext = requestDeviceContext;
     }
 
     public Task<LoginResponseDto> LoginAsync(LoginRequestDto request)
-        => LoginAsync(request, "unknown");
+        => LoginAsync(request, "unknown", null);
+
+    public Task<LoginResponseDto> LoginAsync(LoginRequestDto request, string clientIp)
+        => LoginAsync(request, clientIp, null);
 
     public async Task RegisterAsync(RegisterRequestDto request)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(AuthService), nameof(RegisterAsync));
         var email = request.Email.Trim().ToLower();
 
         var existingUser = await _userRepository.ExistsByEmailAsync(email);
@@ -84,8 +98,9 @@ public class AuthService : IAuthService
         _logger.LogInformation("New user registered {Email}", email);
     }
 
-    public async Task<LoginResponseDto> LoginAsync(LoginRequestDto request, string clientIp)
+    public async Task<LoginResponseDto> LoginAsync(LoginRequestDto request, string clientIp, string? userAgent)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(AuthService), nameof(LoginAsync));
         var email = request.Email.Trim().ToLower();
         var loginAttemptKey = $"auth:login:attempts:{email}";
         long attempts;
@@ -156,6 +171,23 @@ public class AuthService : IAuthService
             }
         }
 
+        if (!string.IsNullOrWhiteSpace(deviceHash))
+        {
+            try
+            {
+                await _deviceSessionService.RegisterAsync(
+                    user.Id,
+                    user.CurrentSessionId!,
+                    deviceHash,
+                    userAgent ?? string.Empty,
+                    clientIp);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Device session registry failed for user {UserId}", user.Id);
+            }
+        }
+
         return new LoginResponseDto
         {
             Token = token,
@@ -174,6 +206,7 @@ public class AuthService : IAuthService
 
     public async Task<LoginResponseDto> RefreshTokenAsync(TokenRequestDto request, string clientIp, string? deviceId)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(AuthService), nameof(RefreshTokenAsync));
         var principal = _jwtTokenService.GetPrincipalFromExpiredToken(request.AccessToken);
         if (principal == null)
             throw new SecurityTokenException("Invalid access token or refresh token");
@@ -198,11 +231,13 @@ public class AuthService : IAuthService
         }
 
         UserSessionState? session = null;
+        var sessionLoadedFromRedis = false;
         if (_cacheService != null)
         {
             try
             {
                 session = await _cacheService.GetAsync<UserSessionState>(SessionCacheKey(user.Id));
+                sessionLoadedFromRedis = session != null;
             }
             catch (Exception ex)
             {
@@ -251,21 +286,12 @@ public class AuthService : IAuthService
             throw new SecurityTokenException("Session invalidated");
         }
 
-        // Kiểm tra device binding nếu phiên có device hash (backward-compatible: bỏ qua nếu null)
-        if (!string.IsNullOrWhiteSpace(session.DeviceBindingHash))
-        {
-            var tokenDeviceHash = principal.FindFirst("dbh")?.Value;
-            var deviceBindingSecret = _configuration["AuthSecurity:DeviceBindingSecret"] ?? "fallback-device-secret";
-            string? currentDeviceHash = !string.IsNullOrWhiteSpace(deviceId)
-                ? DeviceBindingHelper.ComputeDeviceHash(deviceId, deviceBindingSecret)
-                : null;
-
-            if (tokenDeviceHash != session.DeviceBindingHash ||
-                currentDeviceHash != session.DeviceBindingHash)
-            {
-                throw new SecurityTokenException("Session invalidated");
-            }
-        }
+        await _deviceBindingValidation.ValidateAsync(
+            deviceId,
+            principal.FindFirst("dbh")?.Value,
+            sessionLoadedFromRedis,
+            session,
+            user);
 
         var newAccessToken = _jwtTokenService.GenerateToken(
             user,
@@ -320,6 +346,7 @@ public class AuthService : IAuthService
 
     public async Task LogoutAsync(string token, int userId)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(AuthService), nameof(LogoutAsync));
         // 1. Blacklist the access token in Redis (even if already expired — harmless, TTL = 0 means instant expiry)
         var handler = new JwtSecurityTokenHandler();
         if (handler.CanReadToken(token))

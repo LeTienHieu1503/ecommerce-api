@@ -22,6 +22,7 @@ public class OrderServiceTests
     private readonly Mock<ICacheService> _cache = new();
     private readonly Mock<IPaymentService> _paymentService = new();
     private readonly Mock<ILogger<OrderService>> _logger = new();
+    private readonly Mock<IRequestDeviceContext> _requestDeviceContext = new();
     private readonly Mock<IUnitOfWorkTransaction> _transaction = new();
 
     private readonly OrderService _sut;
@@ -51,7 +52,8 @@ public class OrderServiceTests
             _unitOfWork.Object,
             _cache.Object,
             _paymentService.Object,
-            _logger.Object);
+            _logger.Object,
+            _requestDeviceContext.Object);
     }
 
     // =============================================

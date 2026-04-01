@@ -4,6 +4,7 @@ using Ecommerce.Domain.Entities;
 using Ecommerce.Domain.Exceptions;
 using Ecommerce.Domain.Interfaces;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 public class PermissionServiceTests
@@ -13,6 +14,8 @@ public class PermissionServiceTests
     // =============================================
     private readonly Mock<IPermissionRepository> _permissionRepo = new();
     private readonly Mock<ICacheService> _cache = new();
+    private readonly Mock<ILogger<PermissionService>> _logger = new();
+    private readonly Mock<IRequestDeviceContext> _requestDeviceContext = new();
 
     private readonly PermissionService _sut;
 
@@ -20,7 +23,9 @@ public class PermissionServiceTests
     {
         _sut = new PermissionService(
             _permissionRepo.Object,
-            _cache.Object);
+            _cache.Object,
+            _logger.Object,
+            _requestDeviceContext.Object);
     }
 
     // =============================================

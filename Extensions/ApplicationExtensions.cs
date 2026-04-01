@@ -10,6 +10,7 @@ public static class ApplicationExtensions
     {
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
+        services.AddScoped<IDeviceBindingValidationService, DeviceBindingValidationService>();
         services.AddScoped<ICategoryService, CategoryService>();
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IRoleService, RoleService>();

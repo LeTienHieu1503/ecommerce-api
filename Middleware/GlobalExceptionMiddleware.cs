@@ -1,4 +1,6 @@
 using Ecommerce.API.Responses;
+using Ecommerce.Application.Exceptions;
+using Ecommerce.Domain.Enums;
 using Ecommerce.Domain.Exceptions;
 using System;
 using System.Net;
@@ -78,6 +80,17 @@ public class GlobalExceptionMiddleware
 
         switch (exception)
         {
+            case DeviceValidationException dvEx:
+                (statusCode, errorCode, message) = dvEx.Reason switch
+                {
+                    DeviceValidationResult.MissingHeader => (400, "DEVICE_HEADER_MISSING", "X-Device-Id header is required"),
+                    DeviceValidationResult.DeviceMismatch => (401, "DEVICE_MISMATCH", "Token used from unrecognized device"),
+                    DeviceValidationResult.SessionRevoked => (401, "SESSION_REVOKED", "Session has been revoked. Please login again"),
+                    DeviceValidationResult.SessionRotated => (401, "SESSION_ROTATED", "Session was replaced. Please re-authenticate"),
+                    _ => (401, "DEVICE_INVALID", "Device validation failed")
+                };
+                break;
+
             case BaseException baseException:
                 statusCode = baseException.StatusCode;
                 errorCode = baseException.ErrorCode;

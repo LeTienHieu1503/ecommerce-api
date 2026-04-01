@@ -19,6 +19,7 @@ public class ProductServiceTests
     private readonly Mock<IProductRepository> _productRepo = new();
     private readonly Mock<ILogger<ProductService>> _logger = new();
     private readonly Mock<ICacheService> _cache = new();
+    private readonly Mock<IRequestDeviceContext> _requestDeviceContext = new();
 
     private readonly ProductService _sut;
 
@@ -27,7 +28,8 @@ public class ProductServiceTests
         _sut = new ProductService(
             _productRepo.Object,
             _logger.Object,
-            _cache.Object);
+            _cache.Object,
+            _requestDeviceContext.Object);
     }
 
     // =============================================

@@ -19,6 +19,7 @@ public class CategoryServiceTests
     private readonly Mock<ICategoryRepository> _categoryRepo = new();
     private readonly Mock<ILogger<CategoryService>> _logger = new();
     private readonly Mock<ICacheService> _cache = new();
+    private readonly Mock<IRequestDeviceContext> _requestDeviceContext = new();
 
     // Service thật — inject mock vào
     private readonly CategoryService _sut;
@@ -28,7 +29,8 @@ public class CategoryServiceTests
         _sut = new CategoryService(
             _categoryRepo.Object,
             _logger.Object,
-            _cache.Object);
+            _cache.Object,
+            _requestDeviceContext.Object);
     }
 
     // =============================================

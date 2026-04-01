@@ -22,6 +22,9 @@ public class AuthServiceTests
     private readonly Mock<ICacheService> _cacheService = new();
     private readonly Mock<ILogger<AuthService>> _logger = new();
     private readonly Mock<IConfiguration> _config = new();
+    private readonly Mock<IDeviceBindingValidationService> _deviceBindingValidation = new();
+    private readonly Mock<IDeviceSessionService> _deviceSession = new();
+    private readonly Mock<IRequestDeviceContext> _requestDeviceContext = new();
 
     // =============================================
     // Service thật — inject mock vào
@@ -34,6 +37,26 @@ public class AuthServiceTests
         _config.Setup(c => c["AuthSecurity:FingerprintSecret"])
             .Returns("test-secret");
 
+        _deviceBindingValidation
+            .Setup(v => v.ValidateAsync(
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<bool>(),
+                It.IsAny<UserSessionState>(),
+                It.IsAny<User>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        _deviceSession
+            .Setup(s => s.RegisterAsync(
+                It.IsAny<int>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
         // Tạo AuthService với tất cả dependencies là mock
         _sut = new AuthService(
             _userRepo.Object,
@@ -42,7 +65,10 @@ public class AuthServiceTests
             _roleRepo.Object,
             _blacklistService.Object,
             _config.Object,
-            _cacheService.Object);
+            _cacheService.Object,
+            _deviceBindingValidation.Object,
+            _deviceSession.Object,
+            _requestDeviceContext.Object);
     }
 
     // =============================================

@@ -9,6 +9,7 @@ using Ecommerce.Application.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using Ecommerce.Application.Common.Caching;
+using Ecommerce.Application.Common.Http;
 using Ecommerce.Application.Common.Logging;
 using System.Collections.Concurrent;
 
@@ -19,6 +20,7 @@ public class ProductService : IProductService
     private readonly IProductRepository _productRepository;
     private readonly ILogger<ProductService> _logger;
     private readonly ICacheService _cache;
+    private readonly IRequestDeviceContext _requestDeviceContext;
 
     private static readonly SemaphoreSlim _productListLock = new SemaphoreSlim(1, 1);
     private static readonly ConcurrentDictionary<int, SemaphoreSlim> _productByIdLocks = new();
@@ -26,15 +28,18 @@ public class ProductService : IProductService
     public ProductService(
         IProductRepository productRepository,
         ILogger<ProductService> logger,
-        ICacheService cache)
+        ICacheService cache,
+        IRequestDeviceContext requestDeviceContext)
     {
         _productRepository = productRepository;
         _logger = logger;
         _cache = cache;
+        _requestDeviceContext = requestDeviceContext;
     }
 
     public async Task<ProductResponseDto> CreateAsync(CreateProductDto dto)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(ProductService), nameof(CreateAsync));
         _logger.LogInformation(
             LogMessages.ProductCreating,
             dto.Name,
@@ -74,6 +79,7 @@ public class ProductService : IProductService
 
     public async Task<ProductResponseDto> GetByIdAsync(int id)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(ProductService), nameof(GetByIdAsync));
         var cacheKey = CacheKeysProduct.Product(id);
 
         var cached = await _cache.GetAsync<ProductResponseDto>(cacheKey);
@@ -118,6 +124,7 @@ public class ProductService : IProductService
 
     public async Task<PagedResult<ProductResponseDto>> GetAllAsync(ProductQuery query)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(ProductService), nameof(GetAllAsync));
         var version = await _cache.GetAsync<long?>(CacheKeysProduct.ProductListVersion()) ?? 0;
         var cacheKey = CacheKeysProduct.ProductList(query, version);
 
@@ -197,6 +204,7 @@ public class ProductService : IProductService
 
     public async Task<ProductResponseDto> UpdateAsync(int id, UpdateProductDto dto)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(ProductService), nameof(UpdateAsync));
         _logger.LogInformation(LogMessages.ProductUpdating, id);
 
         var product = await _productRepository.GetByIdAsync(id);
@@ -241,6 +249,7 @@ public class ProductService : IProductService
 
     public async Task DeleteAsync(int id)
     {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(ProductService), nameof(DeleteAsync));
         _logger.LogInformation(LogMessages.ProductDeleting, id);
 
         var product = await _productRepository.GetByIdAsync(id);

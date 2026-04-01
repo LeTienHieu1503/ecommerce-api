@@ -5,6 +5,7 @@ using Ecommerce.Domain.Entities;
 using Ecommerce.Domain.Exceptions;
 using Ecommerce.Domain.Interfaces;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 public class RoleServiceTests
@@ -15,6 +16,8 @@ public class RoleServiceTests
     private readonly Mock<IRoleRepository> _roleRepo = new();
     private readonly Mock<IUserRepository> _userRepo = new();
     private readonly Mock<ICacheService> _cache = new();
+    private readonly Mock<ILogger<RoleService>> _logger = new();
+    private readonly Mock<IRequestDeviceContext> _requestDeviceContext = new();
 
     private readonly RoleService _sut;
 
@@ -23,7 +26,9 @@ public class RoleServiceTests
         _sut = new RoleService(
             _roleRepo.Object,
             _userRepo.Object,
-            _cache.Object);
+            _cache.Object,
+            _logger.Object,
+            _requestDeviceContext.Object);
     }
 
     // =============================================
