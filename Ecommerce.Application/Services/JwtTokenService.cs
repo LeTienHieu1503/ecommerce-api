@@ -74,6 +74,7 @@ namespace Ecommerce.Application.Services
 
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
+        
         public string GenerateRefreshToken()
         {
             var randomNumber = new byte[32];

@@ -1,70 +1,90 @@
 # Báo cáo Phân tích Dự án Ecommerce.API
 
-Dựa trên việc rà soát toàn bộ mã nguồn, dưới đây là đánh giá chi tiết về trạng thái hiện tại của dự án, các phần đã hoàn thiện, các phần cần làm thêm và các điểm cần tối ưu hóa.
+Dựa trên việc rà soát mã nguồn (cập nhật theo tiến độ hiện tại), dưới đây là đánh giá về trạng thái dự án, phần đã hoàn thiện, roadmap và hướng tối ưu.
 
 ## 1. Những gì đã làm được (Completed)
 
-Dự án hiện đang có một nền tảng rất vững chắc với kiến trúc sạch (**Clean Architecture**) và áp dụng nhiều Best Practices.
+Dự án có nền tảng **Clean Architecture**, tách lớp rõ ràng và nhiều best practice; đã bổ sung **tích hợp thanh toán Stripe** và **mô hình trạng thái đơn hàng / thanh toán** đầy đủ hơn so với phiên bản báo cáo trước.
 
 ### Kiến trúc & Pattern (Architecture & Patterns)
-- **Kiến trúc Clean Architecture**: Chia dự án thành 4 lớp rõ rệt: **Domain** (Core business), **Application** (Use cases), **Infrastructure** (Data/Caching), và **API** (Presentation).
-- **Repository & Unit of Work**: Sử dụng để trừu tượng hóa việc truy cập dữ liệu và quản lý giao dịch (**Transactions**). Đảm bảo tính toàn vẹn (Atomicity) khi thực hiện nhiều thao tác dữ liệu cùng lúc.
-- **Manual Static Mapping**: Sử dụng `Static Mapper` cho hiệu năng vượt trội so với AutoMapper, giúp dễ dàng debug và kiểm soát việc chuyển đổi dữ liệu giữa Entity và DTO.
-- **Unified Base Controller**: `BaseApiController` kết hợp với `ApiResponse<T>` để chuẩn hóa toàn bộ đầu ra (Success, ErrorCode, Message, Data).
+
+- **Clean Architecture**: **Domain** (core), **Application** (use cases), **Infrastructure** (EF, Redis, Stripe), **API** (controllers, middleware).
+- **Repository & Unit of Work**: Trừu tượng truy cập dữ liệu; transaction qua `BeginTransactionAsync()` cho luồng cần ACID (tạo đơn, hủy đơn, …).
+- **Static Mapper**: Map Entity ↔ DTO thủ công (không dùng AutoMapper).
+- **BaseApiController + ApiResponse&lt;T&gt;**: Chuẩn hóa response (Success, ErrorCode, Message, Data).
 
 ### Chức năng Core (Core Features)
-- **Hệ thống Bảo mật (Security & Identity)**:
-    - **Phương pháp**: JWT Authentication kết hợp **Refresh Token Rotation**.
-    - **IP Fingerprinting**: Sử dụng claim `iph` (IP Hash) được băm với mã bí mật để ngăn chặn **Session Hijacking** ngay cả khi Token bị lộ.
-    - **Session Integrity**: Kiểm tra `sid` (Session ID) và `sv` (Session Version) trên mỗi request để hỗ trợ Logout toàn cục/từ xa.
-    - **Token Blacklisting**: Sử dụng Redis để lưu danh sách đen các Access Token đã bị vô hiệu hóa (khi Logout hoặc Refresh).
-- **Quản lý Catalog (Product & Category)**:
-    - **Query Layer**: Áp dụng **Pagination**, **Dynamic Sorting**, và **Prefix Search**.
-    - **Constraints**: Ràng buộc toàn vẹn dữ liệu ở tầng Application (ví dụ: không xóa Category nếu còn Product).
-- **Xử lý Đơn hàng & Kho (Orders & Inventory)**:
-    - **ACID Transactions**: Sử dụng `BeginTransactionAsync()` để đảm bảo thao tác trừ kho và tạo đơn hàng luôn đi cùng nhau.
-    - **Optimistic Concurrency**: Sử dụng **RowVersion** (concurrency token) để xử lý tranh chấp dữ liệu khi nhiều người mua cùng lúc, ngăn chặn tình trạng "over-selling".
 
-### Hạ tầng (Infrastructure & Cross-cutting Concerns)
-- **Hệ thống Caching**:
-    - **Pattern**: **Cache-Aside** sử dụng Redis Distributed Cache.
-    - **List Versioning Methodology**: Sử dụng một `Version key` để đánh phiên bản cho các danh sách (list). Khi dữ liệu thay đổi (Add/Update/Delete), chỉ cần tăng version này để vô hiệu hóa (invalidate) toàn bộ cache danh sách một cách hiệu quả mà không cần quét (scan) khóa Redis.
-- **Global Exception Handling**: Sử dụng **Custom Middleware** bắt tập trung mọi ngoại lệ, chuyển đổi thành chuẩn `ApiResponse` với mã HTTP tương ứng (400, 401, 403, 404, 500).
-- **Structured Logging**: Tích hợp **Serilog** với định dạng JSON, sử dụng `RequestId` (TraceIdentifier) để liên kết toàn bộ log của một request từ lúc bắt đầu đến khi kết thúc.
+- **Bảo mật & Identity**:
+  - JWT + **Refresh Token Rotation**.
+  - **IP binding** (`iph`) và **session** (`sid` / `sv`) chống hijack / hỗ trợ logout từ xa.
+  - **Token blacklist** (Redis).
+  - Phân quyền theo **Policy** (permission-based), có role Admin.
+- **Catalog (Product & Category)**:
+  - Pagination, dynamic sorting, prefix search.
+  - Ràng buộc nghiệp vụ (ví dụ không xóa category còn product).
+- **Đơn hàng & kho (Orders & Inventory)**:
+  - Tạo đơn trong transaction: trừ kho + lưu order.
+  - **Optimistic concurrency** (RowVersion) chống oversell khi cập nhật đồng thời.
+  - Validate tổng số lượng theo **tồn kho** (`Product.Stock`); merge dòng trùng `ProductId` khi tạo đơn.
+- **Thanh toán Stripe (Payment)**:
+  - `IPaymentService` / `StripePaymentService`: tạo **PaymentIntent**, **idempotency key** theo order + số tiền (và retry khi `Failed`), tái sử dụng intent còn hợp lệ (`GetReusablePaymentIntentAsync`).
+  - Metadata `orderId` trên PaymentIntent.
+  - **Webhook** `POST /api/webhooks/stripe`: xử lý `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.succeeded`, `charge.failed`; đồng bộ `OrderStatus` / `PaymentStatus`.
+  - Trích `payment_intent` từ payload (cast + fallback JSON) khi cần.
+  - `GlobalExceptionMiddleware`: `StripeException` → HTTP 502 + `STRIPE_ERROR`.
+  - Cấu hình Stripe qua `Stripe__*` / alias `STRIPE_*` (`EnvLoader`, `.env.example`); **docker-compose** truyền biến Stripe vào container `api`.
+- **Checkout API**: `POST /api/Order/{id}/checkout` trả `client_secret` cho client Stripe.js.
+- **Hủy đơn (Cancel)**: `PUT /api/Order/{id}/cancel` — chỉ cho đơn **Pending**; hoàn kho; `OrderStatus.Cancelled` + `PaymentStatus.Cancelled`. Admin có thể hủy đơn user khác.
+
+### Trạng thái nghiệp vụ (Enums & DB)
+
+- **OrderStatus**: `Pending`, `Paid`, `Shipped`, `Delivered`, `Cancelled`
+- **PaymentStatus**: `Pending`, `Succeeded`, `Failed`, `Cancelled`
+- Entity **Order**: `StripePaymentIntentId`, đồng bộ qua webhook sau thanh toán thành công.
+
+### Hạ tầng & DevOps
+
+- **Caching**: Redis (hoặc memory) cache-aside; versioning cho danh sách product; cache key cho order.
+- **Global exception middleware** → ApiResponse + mã HTTP phù hợp.
+- **Serilog**: console + rolling file, gắn `RequestId` (TraceIdentifier).
+- **Docker**: `docker-compose` (API, Postgres `db` + `db-local`, Redis), port API **5169**; task VS Code **Docker Redeploy** / EF **Reset Database**.
+- **Unit tests**: Nhiều test trong `Ecommerce.UnitTests` (Auth, Jwt, Order — kể cả checkout / webhook handlers, Cancel, Product, Category, Role, Permission).
 
 ---
 
 ## 2. Những gì cần làm thêm (To-do / Roadmap)
 
-Dự án hiện tại giống như một Core Engine mạnh mẽ nhưng còn thiếu các tính năng mở rộng để trở thành một sàn TMĐT hoàn chỉnh:
-
-- **Giỏ hàng (Shopping Cart)**: Hiện tại User đang đặt hàng trực tiếp. Cần thêm `CartService` lưu trong Redis hoặc DB.
-- **Hệ thống Thanh toán (Payment Integration)**: Tích hợp Mock hoặc Real Payment Gateway (Stripe, VNPay, Momo).
-- **Quản lý User nâng cao**: 
-    - Cập nhật Profile, Đổi mật khẩu.
-    - Quên mật khẩu (gửi Mail OTP/Link).
-- **Đánh giá & Bình luận (Reviews & Ratings)**: Cho phép khách hàng đánh giá sản phẩm sau khi mua.
-- **Vòng đời Đơn hàng (Order Lifecycle)**: Hiện chỉ có `Pending` và `Cancelled`. Cần thêm `Processing`, `Shipped`, `Delivered`, `Refunded`.
-- **Thống kê (Dashboard/Analytics)**: API cho Admin xem doanh thu, sản phẩm bán chạy.
-- **Unit Tests/Integration Tests**: Đã có folder Test nhưng cần bổ sung coverage cho toàn bộ Service Layer (đặc biệt là logic phức tạp trong [OrderService](file:///c:/Users/TienHieu/source/repos/Ecommerce.API/Ecommerce.Application/Services/OrderService.cs#21-34)).
+- **Giỏ hàng (Shopping Cart)**: Vẫn đặt hàng trực tiếp; chưa có `CartService` (Redis/DB).
+- **Refund & hủy đơn đã Paid**: Chưa gọi Stripe Refund; chưa API hủy đơn **sau khi đã thanh toán** (hoàn tiền + đồng bộ DB + webhook `refund.*` nếu cần).
+- **Vòng đời giao hàng (Fulfillment)**: Enum có `Shipped` / `Delivered` nhưng **chưa thấy API/service** chuyển trạng thái (chủ yếu cập nhật qua DB hoặc mở rộng sau).
+- **Quản lý User nâng cao**: Profile, đổi mật khẩu, quên mật khẩu (email OTP/link).
+- **Đánh giá sản phẩm (Reviews & Ratings)**.
+- **Dashboard / Analytics**: Doanh thu, sản phẩm bán chạy (Admin).
+- **Bổ sung test**: Tăng coverage cho Stripe integration (mock đã dùng nhiều ở `OrderServiceTests`; có thể thêm test `WebhookController` / `StripePaymentService` nếu cần).
 
 ---
 
 ## 3. Những gì cần tối ưu hóa (Optimizations)
 
 ### Code & Maintainability
-- **Program.cs quá dài**: Hiện tại file [Program.cs](file:///c:/Users/TienHieu/source/repos/Ecommerce.API/Program.cs) đang chứa quá nhiều logic cấu hình. Nên tách ra các Extension Methods như `AddAuthServices()`, `AddInfrastructure()`, `AddSwaggerConfig()`. (Done)
-- **Tránh lặp code (DRY)**: Logic Phân trang và Cache Versioning trong [ProductService](file:///c:/Users/TienHieu/source/repos/Ecommerce.API/Ecommerce.Application/Services/ProductService.cs#24-33) và [CategoryService](file:///c:/Users/TienHieu/source/repos/Ecommerce.API/Ecommerce.Application/Services/CategoryService.cs#15-199) khá giống nhau. Có thể trừu tượng hóa (Abstract) vào một Base Service hoặc Helper.
-- **Dùng FluentValidation**: Thay vì DataAnnotations trong DTO, dùng FluentValidation sẽ giúp logic validation tách biệt và mạnh mẽ hơn (hỗ trợ các luật phức tạp).
+
+- **Program.cs**: Đã gọn; cấu hình tách qua `Extensions` (`AddInfrastructure`, `AddAuthConfig`, `AddSwaggerConfig`, …). Có thể tiếp tục tách `LogStripeConfigurationStatus` nếu muốn đồng nhất.
+- **DRY**: Logic phân trang / cache versioning giữa `ProductService` và `CategoryService` vẫn có thể trừu tượng hóa (base helper).
+- **FluentValidation**: Có thể thay/thêm cho DataAnnotations trên DTO cho rule phức tạp.
 
 ### Hiệu năng (Performance)
-- **RedisCache Service**: Logic [IncrementAsync](file:///c:/Users/TienHieu/source/repos/Ecommerce.API/Ecommerce.Infrastructure/Caching/RedisCacheService.cs#105-123) dùng Lua Script khá tốt nhưng có thể xem xét các phương pháp In-memory cache lớp 1 (L1 Cache) trước khi gọi Redis (L2 Cache) để giảm tải cho Network.
-- **Dapper cho Read-only**: Ở các API query danh sách lớn, có thể cân nhắc dùng Dapper thay cho EF Core + `.AsNoTracking()` để đạt tốc độ tối đa.
+
+- **Redis**: Cân nhắc L1 memory cache trước Redis cho một số đọc nóng.
+- **Read-heavy**: Có thể thử Dapper / raw SQL cho báo cáo lớn thay vì chỉ EF.
 
 ### Bảo mật (Security)
-- **Rate Limiting**: Cần thêm giới hạn số lần gọi API (nhất là API Login/Register) để chống Brute-force.(Done)
-- **CORS Policy**: Hiện tại có vẻ chưa cấu hình chặt chẽ CORS trong [Program.cs](file:///c:/Users/TienHieu/source/repos/Ecommerce.API/Program.cs).
+
+- **Rate limiting**: Chưa thấy cấu hình `AddRateLimiter` / CORS chi tiết trong `Program.cs` — nên bổ sung cho login/register và API nhạy cảm.
+- **CORS**: Cấu hình rõ policy theo môi trường (dev vs production).
 
 ---
 
-**Kết luận**: Bạn đã làm được phần khó nhất là User Session Security và Transactional Identity. Giờ là lúc tập trung vào Feature-set (Cart, Payment) và Refactor code cho gọn để mở rộng dễ dàng hơn.
+## 4. Kết luận
+
+Dự án đã có **nền tảng bảo mật phiên**, **transaction + concurrency cho đơn hàng**, và **luồng thanh toán Stripe end-to-end** (checkout + webhook cập nhật DB). Phần còn lại để gần sàn TMĐT hoàn chỉnh chủ yếu là **cart**, **refund / hủy đơn đã trả tiền**, **fulfillment (ship/deliver)**, **user profile & recovery**, **reviews**, **analytics**, và **hardening** (rate limit, CORS).

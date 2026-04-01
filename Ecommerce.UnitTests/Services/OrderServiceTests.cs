@@ -732,6 +732,28 @@ public class OrderServiceTests
     }
 
     [Fact]
+    public async Task CreateCheckoutAsync_WhenPaymentFailed_UsesRetryIdempotencyKeyPrefix()
+    {
+        var order = CreateFakeOrder(paymentStatus: PaymentStatus.Failed, stripePaymentIntentId: "pi_old");
+        _orderRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(order);
+        string? capturedKey = null;
+        _paymentService
+            .Setup(p => p.CreatePaymentIntentAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .Callback<long, string, string, string>((_, _, _, key) => capturedKey = key)
+            .ReturnsAsync(new PaymentIntentCreateResult("secret_new", "pi_new"));
+
+        var result = await _sut.CreateCheckoutAsync(1, userId: 1);
+
+        result.ClientSecret.Should().Be("secret_new");
+        order.StripePaymentIntentId.Should().Be("pi_new");
+        capturedKey.Should().NotBeNull();
+        capturedKey.Should().MatchRegex("^order-1-retry-[a-f0-9]{32}$");
+        _paymentService.Verify(
+            p => p.GetReusablePaymentIntentAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task HandlePaymentSucceededAsync_WhenOrderFound_UpdatesStatus()
     {
         var order = CreateFakeOrder(paymentStatus: PaymentStatus.Pending, stripePaymentIntentId: "pi_abc");

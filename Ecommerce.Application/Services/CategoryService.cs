@@ -226,6 +226,7 @@ public class CategoryService : ICategoryService
         }
         await BumpCategoryListVersionAsync();
     }
+    
     private async Task BumpCategoryListVersionAsync()
     {
         try
