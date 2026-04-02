@@ -7,7 +7,7 @@ using Ecommerce.Application.DTOs.Auth;
 using Ecommerce.Application.Exceptions;
 using Ecommerce.Application.Interfaces;
 using Ecommerce.API.Responses;
-using Ecommerce.Domain.Enums;
+using Ecommerce.Domain.Common.Enums;
 using Ecommerce.Domain.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;

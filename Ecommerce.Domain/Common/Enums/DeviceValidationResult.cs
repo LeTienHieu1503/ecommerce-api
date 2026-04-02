@@ -1,4 +1,4 @@
-namespace Ecommerce.Domain.Enums;
+namespace Ecommerce.Domain.Common.Enums;
 
 public enum DeviceValidationResult
 {

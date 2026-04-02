@@ -1,4 +1,4 @@
-using Ecommerce.Domain.Enums;
+using Ecommerce.Domain.Common.Enums;
 
 namespace Ecommerce.Application.Exceptions;
 

@@ -1,6 +1,6 @@
 using Ecommerce.API.Responses;
 using Ecommerce.Application.Exceptions;
-using Ecommerce.Domain.Enums;
+using Ecommerce.Domain.Common.Enums;
 using Ecommerce.Domain.Exceptions;
 using System;
 using System.Net;

@@ -3,7 +3,7 @@ using Ecommerce.Application.DTOs.Auth;
 using Ecommerce.Application.Exceptions;
 using Ecommerce.Application.Interfaces;
 using Ecommerce.Domain.Entities;
-using Ecommerce.Domain.Enums;
+using Ecommerce.Domain.Common.Enums;
 using Microsoft.Extensions.Configuration;
 
 namespace Ecommerce.Application.Services;

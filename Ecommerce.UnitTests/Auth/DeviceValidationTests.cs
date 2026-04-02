@@ -4,7 +4,7 @@ using Ecommerce.Application.Exceptions;
 using Ecommerce.Application.Interfaces;
 using Ecommerce.Application.Services;
 using Ecommerce.Domain.Entities;
-using Ecommerce.Domain.Enums;
+using Ecommerce.Domain.Common.Enums;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Moq;
