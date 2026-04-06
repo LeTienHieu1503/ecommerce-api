@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Ecommerce.API.Services;
 using Ecommerce.Application.Common.Http;
 using FluentAssertions;
@@ -15,6 +16,20 @@ public class HttpRequestDeviceContextTests
 
         sut.IsDeviceBound.Should().BeFalse();
         sut.NormalizedDeviceId.Should().BeNull();
+        sut.UserId.Should().BeNull();
+    }
+
+    [Fact]
+    public void WhenNameIdentifierClaimPresent_UserIdParsed()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.User = new ClaimsPrincipal(new ClaimsIdentity(
+            new[] { new Claim(ClaimTypes.NameIdentifier, "42") },
+            authenticationType: "Bearer"));
+        var accessor = new HttpContextAccessor { HttpContext = ctx };
+        var sut = new HttpRequestDeviceContext(accessor);
+
+        sut.UserId.Should().Be(42);
     }
 
     [Fact]
@@ -38,5 +53,6 @@ public class HttpRequestDeviceContextTests
 
         sut.IsDeviceBound.Should().BeFalse();
         sut.NormalizedDeviceId.Should().BeNull();
+        sut.UserId.Should().BeNull();
     }
 }

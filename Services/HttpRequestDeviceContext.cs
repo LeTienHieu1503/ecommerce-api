@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Ecommerce.Application.Common.Http;
 using Ecommerce.Application.Interfaces;
 using Microsoft.AspNetCore.Http;
@@ -21,4 +22,14 @@ public sealed class HttpRequestDeviceContext : IRequestDeviceContext
         _httpContextAccessor.HttpContext?.Items.TryGetValue(RequestDeviceContextKeys.NormalizedDeviceId, out var v) == true
             ? v as string
             : null;
+
+    public int? UserId
+    {
+        get
+        {
+            var raw = _httpContextAccessor.HttpContext?.User
+                .FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            return int.TryParse(raw, out var id) ? id : null;
+        }
+    }
 }

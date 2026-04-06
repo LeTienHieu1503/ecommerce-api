@@ -18,22 +18,6 @@ public class OrderController : BaseApiController
         _orderService = orderService;
     }
 
-    [Authorize(Policy = "order.create")]
-    [HttpPost]
-    public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest request)
-    {
-        var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrEmpty(userIdString) || !int.TryParse(userIdString, out int userId))
-        {
-            return Unauthorized(new ApiResponse<string>(401, false, "Invalid user identifier", null));
-        }
-
-        request.UserId = userId;
-
-        var order = await _orderService.CreateOrderAsync(request);
-        return CreatedSuccess(order, "Order created successfully");
-    }
-
     [Authorize(Policy = "order.read")]
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
@@ -62,7 +46,7 @@ public class OrderController : BaseApiController
         return Success(result);
     }
 
-    [Authorize(Policy = "order.read")]
+    [Authorize(Policy = Authorization.Policies.AuthorizationPolicies.AdminOnly)]
     [HttpGet("user/{userId:int}")]
     public async Task<IActionResult> GetByUser(int userId)
     {
@@ -76,6 +60,14 @@ public class OrderController : BaseApiController
         }
 
         var orders = await _orderService.GetOrdersByUserIdAsync(userId);
+        return Success(orders);
+    }
+
+    [Authorize(Policy = "order.read")]
+    [HttpGet("my-orders")]
+    public async Task<IActionResult> GetMyOrders()
+    {
+        var orders = await _orderService.GetOrdersForCurrentUserAsync();
         return Success(orders);
     }
 
@@ -108,6 +100,18 @@ public class OrderController : BaseApiController
 
         var result = await _orderService.CreateCheckoutAsync(id, userId);
         return Success(result, "Payment intent created");
+    }
+
+    [Authorize(Policy = "order.create")]
+    [HttpPost("add-from-cart")]
+    public async Task<IActionResult> AddOrderFromCart()
+    {
+        var userId = GetCurrentUserId();
+        if (userId is null)
+            return Unauthorized(new ApiResponse<string>(401, false, "Invalid user identifier", null));
+
+        var order = await _orderService.AddOrderFromCartAsync(userId.Value);
+        return CreatedSuccess(order, "Order created from cart successfully");
     }
 
     [Authorize(Policy = "order.refund")]

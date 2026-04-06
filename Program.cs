@@ -69,6 +69,7 @@ LogStripeConfigurationStatus(app.Configuration);
 app.UseSwaggerConfig();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseHttpsRedirection();
+app.UseRouting();
 
 // Request logging
 app.Use(async (context, next) =>

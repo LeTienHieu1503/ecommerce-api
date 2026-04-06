@@ -16,6 +16,7 @@ public static class ApplicationExtensions
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IOrderService, OrderService>();
+        services.AddScoped<ICartService, CartService>();
 
         return services;
     }

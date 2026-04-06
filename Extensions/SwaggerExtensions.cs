@@ -40,15 +40,16 @@ public static class SwaggerExtensions
                 var controller = api.ActionDescriptor.RouteValues["controller"];
                 return controller switch
                 {
-                    "Auth" => new[] { "1. Auth" },
-                    "Category" => new[] { "2. Categories" },
-                    "Product" => new[] { "3. Products" },
-                    "Order" => new[] { "4. Orders" },
-                    "Users" => new[] { "5. Users" },
-                    "Roles" => new[] { "6. Roles" },
-                    "Permissions" => new[] { "7. Permissions" },
-                    "Webhook" => new[] { "8. Webhooks" },
-                    "Device" => new[] { "9. Devices" },
+                    "Auth" => new[] { "01. Auth" },
+                    "Category" => new[] { "02. Categories" },
+                    "Product" => new[] { "03. Products" },
+                    "Cart" => new[] { "04. Carts" },
+                    "Order" => new[] { "05. Orders" },
+                    "Users" => new[] { "06. Users" },
+                    "Roles" => new[] { "07. Roles" },
+                    "Permissions" => new[] { "08. Permissions" },
+                    "Device" => new[] { "09. Devices" },
+                    "Webhook" => new[] { "10. Webhooks" },
                     _ => new[] { $"{controller}" }
                 };
             });

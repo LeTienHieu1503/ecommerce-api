@@ -18,6 +18,7 @@ public class OrderServiceTests
     // =============================================
     private readonly Mock<IOrderRepository> _orderRepo = new();
     private readonly Mock<IProductRepository> _productRepo = new();
+    private readonly Mock<ICartService> _cartService = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly Mock<ICacheService> _cache = new();
     private readonly Mock<IPaymentService> _paymentService = new();
@@ -49,6 +50,7 @@ public class OrderServiceTests
         _sut = new OrderService(
             _orderRepo.Object,
             _productRepo.Object,
+            _cartService.Object,
             _unitOfWork.Object,
             _cache.Object,
             _paymentService.Object,
@@ -511,6 +513,29 @@ public class OrderServiceTests
 
         // Assert
         result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetOrdersForCurrentUserAsync_WhenUserIdPresent_ReturnsOrdersForThatUser()
+    {
+        _requestDeviceContext.SetupGet(c => c.UserId).Returns(1);
+        var orders = new List<Order> { CreateFakeOrder(id: 1) };
+        _orderRepo.Setup(o => o.GetByUserIdAsync(1)).ReturnsAsync(orders);
+
+        var result = await _sut.GetOrdersForCurrentUserAsync();
+
+        result.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task GetOrdersForCurrentUserAsync_WhenUserIdMissing_ThrowsUnauthorizedException()
+    {
+        _requestDeviceContext.SetupGet(c => c.UserId).Returns((int?)null);
+
+        var act = () => _sut.GetOrdersForCurrentUserAsync();
+
+        await act.Should().ThrowAsync<UnauthorizedException>()
+            .WithMessage("User identifier is not available.");
     }
 
     // =============================================

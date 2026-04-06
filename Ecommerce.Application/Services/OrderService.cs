@@ -19,6 +19,7 @@ public class OrderService : IOrderService
 {
     private readonly IOrderRepository _orderRepo;
     private readonly IProductRepository _productRepo;
+    private readonly ICartService _cartService;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICacheService _cache;
     private readonly IPaymentService _paymentService;
@@ -30,6 +31,7 @@ public class OrderService : IOrderService
     public OrderService(
         IOrderRepository orderRepo,
         IProductRepository productRepo,
+        ICartService cartService,
         IUnitOfWork unitOfWork,
         ICacheService cache,
         IPaymentService paymentService,
@@ -38,6 +40,7 @@ public class OrderService : IOrderService
     {
         _orderRepo = orderRepo;
         _productRepo = productRepo;
+        _cartService = cartService;
         _unitOfWork = unitOfWork;
         _cache = cache;
         _paymentService = paymentService;
@@ -190,6 +193,16 @@ public class OrderService : IOrderService
         {
             keyLock.Release();
         }
+    }
+
+    public async Task<IEnumerable<OrderDto>> GetOrdersForCurrentUserAsync()
+    {
+        RequestDeviceDiagnostics.Log(_logger, _requestDeviceContext, nameof(OrderService), nameof(GetOrdersForCurrentUserAsync));
+        var userId = _requestDeviceContext.UserId
+            ?? throw new UnauthorizedException("User identifier is not available.");
+
+        var orders = await _orderRepo.GetByUserIdAsync(userId);
+        return orders.Select(o => OrderMapper.ToDto(o));
     }
 
     public async Task<IEnumerable<OrderDto>> GetOrdersByUserIdAsync(int userId)
@@ -389,6 +402,39 @@ public class OrderService : IOrderService
         }
 
         return new CheckoutResponseDto { ClientSecret = intent.ClientSecret };
+    }
+
+    public async Task<OrderDto> AddOrderFromCartAsync(int userId)
+    {
+        var cart = await _cartService.GetCartAsync(userId);
+
+        if (!cart.Items.Any())
+            throw new BusinessException("Cart is empty");
+
+        var createRequest = new CreateOrderRequest
+        {
+            UserId = userId,
+            Items = cart.Items.Select(i => new OrderItemRequest
+            {
+                ProductId = i.ProductId,
+                Quantity = i.Quantity
+            }).ToList()
+        };
+
+        var order = await CreateOrderAsync(createRequest);
+
+        try
+        {
+            await _cartService.ClearCartAsync(userId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Order {OrderId} created but failed to clear cart for user {UserId}",
+                order.Id, userId);
+        }
+
+        return order;
     }
 
     public async Task HandlePaymentSucceededAsync(string paymentIntentId)
