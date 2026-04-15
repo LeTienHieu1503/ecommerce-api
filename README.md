@@ -1,89 +1,92 @@
 # Ecommerce API
 
-REST API thương mại điện tử xây dựng bằng **ASP.NET Core 8**, hỗ trợ quản lý sản phẩm, đơn hàng, thanh toán **Stripe** (kèm webhook), xác thực **JWT**, phân quyền theo vai trò/quyền và binding thiết bị.
+A RESTful e-commerce API built with **ASP.NET Core 8**, supporting product management, order processing, **Stripe** payment integration (including webhooks), **JWT authentication**, role/permission-based authorization, and device binding.
 
-## Tính năng chính
+## Key Features
 
-- **Danh mục & sản phẩm**: CRUD qua API có tổ chức.
-- **Đơn hàng**: Luồng đặt hàng, trạng thái thanh toán, tích hợp Stripe (checkout / hoàn tiền theo mã nguồn hiện tại).
-- **Webhook Stripe**: Cập nhật trạng thái thanh toán từ sự kiện Stripe (`WebhookController`).
-- **Xác thực & phân quyền**: JWT, quản lý user, role, permission.
-- **Thiết bị**: API liên quan thiết bị / ngữ cảnh request (`DeviceController`).
-- **OpenAPI / Swagger**: Tài liệu API khi chạy môi trường Development.
-- **Logging**: Serilog (console + file luân phiên trong thư mục `logs/`).
-- **Unit tests**: Project `Ecommerce.UnitTests` (xUnit + FluentAssertions).
+* **Categories & Products**: Structured CRUD operations via API.
+* **Orders**: Order workflow, payment status tracking, Stripe integration (checkout / refund based on current implementation).
+* **Stripe Webhook**: Updates payment status from Stripe events (`WebhookController`).
+* **Authentication & Authorization**: JWT-based authentication, user/role/permission management.
+* **Device Handling**: APIs related to device context (`DeviceController`).
+* **OpenAPI / Swagger**: API documentation available in Development environment.
+* **Logging**: Serilog (console + rolling file logs in `logs/` directory).
+* **Unit Tests**: `Ecommerce.UnitTests` project (xUnit + FluentAssertions).
 
-## Kiến trúc
+## Architecture
 
-Solution theo hướng **tách lớp**:
+The solution follows a **layered architecture**:
 
-| Project | Vai trò |
-|--------|---------|
-| `Ecommerce.API` | Host Web API, middleware, controllers, cấu hình DI |
-| `Ecommerce.Application` | DTO, interface service, mapper, logic ứng dụng |
-| `Ecommerce.Domain` | Entity, enum, quy tắc nghiệp vụ cốt lõi |
-| `Ecommerce.Infrastructure` | EF Core, PostgreSQL, Redis, Stripe, migration |
-| `Ecommerce.UnitTests` | Kiểm thử |
+| Project                    | Responsibility                                                            |
+| -------------------------- | ------------------------------------------------------------------------- |
+| `Ecommerce.API`            | Web API host, middleware, controllers, dependency injection configuration |
+| `Ecommerce.Application`    | DTOs, service interfaces, mappers, application logic                      |
+| `Ecommerce.Domain`         | Entities, enums, core business rules                                      |
+| `Ecommerce.Infrastructure` | EF Core, PostgreSQL, Redis, Stripe, migrations                            |
+| `Ecommerce.UnitTests`      | Testing                                                                   |
 
-## Công nghệ
+## Technologies
 
-- .NET 8, ASP.NET Core Web API  
-- Entity Framework Core + **PostgreSQL** (Npgsql)  
-- **Redis** (StackExchange.Redis) — có thể bật/tắt qua cấu hình  
-- JWT Bearer authentication  
-- **Stripe.net**  
-- Serilog, Swashbuckle (Swagger)  
-- Docker Compose (API + Postgres + Redis)
+* .NET 8, ASP.NET Core Web API
+* Entity Framework Core + **PostgreSQL** (Npgsql)
+* **Redis** (StackExchange.Redis) — configurable via settings
+* JWT Bearer Authentication
+* **Stripe.net**
+* Serilog, Swashbuckle (Swagger)
+* Docker Compose (API + PostgreSQL + Redis)
 
-## Yêu cầu môi trường
+## Prerequisites
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)  
-- PostgreSQL (hoặc dùng Docker Compose)  
-- Redis (tùy cấu hình `Redis:Enabled`)  
-- Tài khoản [Stripe](https://stripe.com) (test keys + webhook secret khi phát triển webhook)
+* [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+* PostgreSQL (or use Docker Compose)
+* Redis (optional, depending on `Redis:Enabled`)
+* A [Stripe](https://stripe.com) account (test keys + webhook secret for development)
 
-## Chạy nhanh (local)
+## Quick Start (Local)
 
-1. **Clone repository**
+1. **Clone the repository**
 
    ```bash
    git clone https://github.com/LeTienHieu1503/ecommerce-api.git
    cd Ecommerce.API
    ```
 
-2. **Cấu hình kết nối** trong `appsettings.json` hoặc `appsettings.Development.json` (mục `ConnectionStrings:DefaultConnection`, `ConnectionStrings:Redis`).
+2. **Configure connection strings** in `appsettings.json` or `appsettings.Development.json`
+   (`ConnectionStrings:DefaultConnection`, `ConnectionStrings:Redis`).
 
-3. **Biến môi trường / Stripe / JWT**  
-   - Sao chép `.env.example` thành `.env` tại thư mục gốc solution (cùng cấp với `Ecommerce.API.sln`).  
-   - Điền `Stripe__SecretKey`, `Stripe__WebhookSecret`, v.v. theo hướng dẫn trong file.  
-   - Ứng dụng dùng `EnvLoader` để nạp `.env` khi khởi động.
+3. **Environment Variables / Stripe / JWT**
 
-4. **Chạy API**
+   * Copy `.env.example` to `.env` in the solution root (same level as `Ecommerce.API.sln`).
+   * Fill in values like `Stripe__SecretKey`, `Stripe__WebhookSecret`, etc.
+   * The application uses `EnvLoader` to load `.env` at startup.
+
+4. **Run the API**
 
    ```bash
    dotnet run --project Ecommerce.API.csproj
    ```
 
-   Mặc định có profile **https** trỏ tới Swagger, ví dụ: `https://localhost:7041/swagger` (xem `Properties/launchSettings.json`).
+   By default, the **https** profile points to Swagger, e.g.:
+   `https://localhost:7041/swagger` (see `Properties/launchSettings.json`).
 
-5. **Migration**  
-   Ứng dụng gọi `Database.MigrateAsync()` khi start (có retry). Seed admin/quyền cũng chạy sau migration.
+5. **Database Migration**
+   The application calls `Database.MigrateAsync()` on startup (with retry).
+   Admin seeding (roles/permissions) runs after migration.
 
 ## Docker Compose
 
-Chạy API cùng Postgres và Redis:
+Run API with PostgreSQL and Redis:
 
 ```bash
 docker compose up -d --build
 ```
 
-- API thường map cổng **5169** → container port 80 (xem `docker-compose.yml`).  
-- Cần biến trong `.env` phù hợp (ví dụ `POSTGRES_PASSWORD`, `Jwt__Key`, secret Stripe nếu dùng thanh toán).  
-- Webhook Stripe local: dùng Stripe CLI forward tới URL tương ứng (gợi ý trong `.env.example`).
+* API typically maps port **5169** → container port 80 (see `docker-compose.yml`).
+* Ensure `.env` variables are properly configured (e.g., `POSTGRES_PASSWORD`, `Jwt__Key`, Stripe secrets if using payments).
+* For local Stripe webhook testing: use Stripe CLI to forward events to your local endpoint (see `.env.example`).
 
-## Chạy tests
+## Run Tests
 
 ```bash
 dotnet test Ecommerce.API.sln
 ```
-
